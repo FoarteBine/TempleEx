@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx Autoload System
     Handles script auto-loading, session restore, rejoin relaunch
 ]]

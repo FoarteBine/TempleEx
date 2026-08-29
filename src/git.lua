@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx Git Layer
     Handles self-update, hub registries, theme/script pulling from git
 ]]

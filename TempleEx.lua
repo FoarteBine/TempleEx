@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx - Main Entry Point (Bootloader + Single-File Build Target)
     Version: 1.0.0
     Load via: loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()
@@ -278,6 +278,11 @@ end
 local fullBuild = bootstrap()
 if not fullBuild then
     error("[TempleEx] No build content available")
+end
+
+-- Strip UTF-8 BOM if present (Luau loadstring rejects U+FEFF at position 1)
+if fullBuild:sub(1, 3) == "\239\187\191" then
+    fullBuild = fullBuild:sub(4)
 end
 
 -- Execute the full build (which defines all modules and returns TempleApi)

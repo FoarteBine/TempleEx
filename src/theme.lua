@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx Theme Engine
     Handles theme loading, token resolution, hot-swap, and validation
 ]]

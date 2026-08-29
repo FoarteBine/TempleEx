@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx AI Agents Bridge
     Theme generation/refinement via LLM
 ]]

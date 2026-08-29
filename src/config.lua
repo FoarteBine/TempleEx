@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx Config Manager
     Handles temple.yaml loading, validation, saving, and hot-reload
 ]]

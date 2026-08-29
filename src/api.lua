@@ -1,4 +1,4 @@
-﻿--[[
+--[[
     TempleEx Public API (TempleApi)
     The interface that third-party scripts use
 ]]

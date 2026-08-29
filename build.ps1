@@ -4,6 +4,15 @@
 
 $ErrorActionPreference = "Stop"
 
+# Write UTF-8 WITHOUT BOM (PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM,
+# which breaks Luau's loadstring with "Expected identifier ... U+feff").
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+function Write-NoBom([string]$path, [string]$text) {
+    # Strip any leading BOM from the text itself before writing
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+    [System.IO.File]::WriteAllBytes($path, $Utf8NoBom.GetBytes($text))
+}
+
 # ── Step 1: generate src/assets.lua ────────────────────────────
 $assetFiles = @()
 $assetFiles += Get-ChildItem "themes" -Filter "*.yaml" -ErrorAction SilentlyContinue
@@ -46,7 +55,7 @@ end
 return Assets
 "@)
 
-Set-Content "src/assets.lua" $sb.ToString() -Encoding UTF8
+Write-NoBom "src/assets.lua" $sb.ToString()
 Write-Host "Generated src/assets.lua ($($assetFiles.Count) embedded files)"
 
 # ── Step 2: concatenate modules ────────────────────────────────
@@ -168,14 +177,14 @@ return result
 
 $output += $main
 
-$output | Set-Content "TempleEx-full.lua" -Encoding UTF8
+Write-NoBom "TempleEx-full.lua" $output
 Write-Host "Built TempleEx-full.lua ($((Get-Item 'TempleEx-full.lua').Length) bytes)"
 
 # Update bootloader version
 if (Test-Path "TempleEx.lua") {
     $bootloader = Get-Content "TempleEx.lua" -Raw -Encoding UTF8
     $bootloader = $bootloader -replace 'local BOOTLOADER_VERSION = "[\d.]+"', 'local BOOTLOADER_VERSION = "1.0.0"'
-    $bootloader | Set-Content "TempleEx.lua" -Encoding UTF8
+    Write-NoBom "TempleEx.lua" $bootloader
     Write-Host "Updated TempleEx.lua bootloader version"
 }
 

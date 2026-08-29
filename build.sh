@@ -14,7 +14,7 @@ set -e
         [ -f "$f" ] || continue
         rel="$(basename "$(dirname "$f")")/$(basename "$f")"
         echo "Assets.files[\"$rel\"] = [==["
-        cat "$f"
+        sed -E '1s/^\xEF\xBB\xBF//' "$f"
         echo "]==]"
     done
     cat <<'MATERIALIZER'
@@ -24,7 +24,7 @@ function Assets.materialize(base)
     local written = 0
     for relPath, content in pairs(Assets.files) do
         local full = (base == nil or base == "") and relPath or (base .. "/" .. relPath)
-        local exists = select(2, pcall(Executor.fs_exists, full))
+        local _, exists = Executor.fs_exists(full)
         if not exists then
             local dir = relPath:match("^(.+)/[^/]+$")
             if dir then
@@ -69,7 +69,7 @@ end
 for name in "${MODULES[@]}"; do
     path="src/${name}.lua"
     if [ -f "$path" ]; then
-        content=$(sed -E 's/require[[:space:]]*\([[:space:]]*script\.Parent\.([[:alnum:]_]+)[[:space:]]*\)/TempleExRequire("\1")/g' "$path")
+        content=$(sed -E -e '1s/^\xEF\xBB\xBF//' -e 's/require[[:space:]]*\([[:space:]]*script\.Parent\.([[:alnum:]_]+)[[:space:]]*\)/TempleExRequire("\1")/g' "$path")
         OUTPUT+="-- Module: ${name}
 ${content}
 
