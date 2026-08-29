@@ -12,6 +12,7 @@ local Core = require(script.Parent.core)
 local Shell = require(script.Parent.shell)
 local Config = require(script.Parent.config)
 local Log = require(script.Parent.log)
+local Icons = require(script.Parent.icons)
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -184,33 +185,32 @@ function TempleApi.Window(options)
     controls.ZIndex = 51
     controls.Parent = titleBar
 
-    local function makeControlBtn(name, text, pos, callback)
+    local function makeControlBtn(name, iconName, fallbackText, pos, callback)
         local btn = Instance.new("TextButton")
         btn.Name = name
         btn.Size = UDim2.new(0, 28, 0, 28)
         btn.Position = pos
         btn.BackgroundTransparency = 1
-        btn.Text = text
-        btn.TextColor3 = ThemeEngine.getToken("window.title.fg")
-        btn.TextSize = 14
-        btn.Font = Enum.Font.GothamBold
+        btn.Text = ""
+        btn.AutoButtonColor = false
         btn.ZIndex = 52
         btn.Parent = controls
+        local _, setIcon = Icons.new(iconName, btn, 16, ThemeEngine.getToken("window.title.fg"))
         btn.MouseButton1Click:Connect(callback)
         btn.MouseEnter:Connect(function()
-            btn.TextColor3 = ThemeEngine.getToken("window.close.hover") or ThemeEngine.getToken("text.accent")
+            setIcon(ThemeEngine.getToken("window.close.hover") or ThemeEngine.getToken("text.accent"))
         end)
         btn.MouseLeave:Connect(function()
-            btn.TextColor3 = ThemeEngine.getToken("window.title.fg")
+            setIcon(ThemeEngine.getToken("window.title.fg"))
         end)
         return btn
     end
 
-    makeControlBtn("Minimize", "—", UDim2.new(0, 0, 0.5, -14), function() window.minimize() end)
-    makeControlBtn("Maximize", "□", UDim2.new(0, 28, 0.5, -14), function()
+    makeControlBtn("Minimize", "minimize", "—", UDim2.new(0, 0, 0.5, -14), function() window.minimize() end)
+    makeControlBtn("Maximize", "maximize", "□", UDim2.new(0, 28, 0.5, -14), function()
         if window.maximized then window.restore() else window.maximize() end
     end)
-    makeControlBtn("Close", "✕", UDim2.new(0, 56, 0.5, -14), function() window.close() end)
+    makeControlBtn("Close", "close", "✕", UDim2.new(0, 56, 0.5, -14), function() window.close() end)
 
     -- Drag handling
     local dragging = false

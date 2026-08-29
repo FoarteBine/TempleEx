@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 # ── Single source of truth for the version ─────────────────────
-$Version = "1.0.2"
+$Version = "1.0.3"
 $vmaj, $vmin, $vpat = $Version.Split(".")
 
 # Write UTF-8 WITHOUT BOM (PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM,
@@ -63,7 +63,7 @@ Write-NoBom "src/assets.lua" $sb.ToString()
 Write-Host "Generated src/assets.lua ($($assetFiles.Count) embedded files)"
 
 # ── Step 2: concatenate modules ────────────────────────────────
-$modules = @("yaml", "executor", "log", "assets", "config", "theme", "core", "core_functions", "shell", "autoload", "git", "ai", "api")
+$modules = @("yaml", "executor", "log", "assets", "config", "theme", "core", "core_functions", "icons", "shell", "autoload", "git", "ai", "api")
 
 $header = @"
 --[[

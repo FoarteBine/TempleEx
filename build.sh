@@ -6,7 +6,7 @@
 set -e
 
 # ── Single source of truth for the version ─────────────────────
-VERSION="1.0.2"
+VERSION="1.0.3"
 IFS='.' read -r VMAJ VMIN VPAT <<< "$VERSION"
 
 # ── Step 1: generate src/assets.lua ────────────────────────────
@@ -48,7 +48,7 @@ MATERIALIZER
 echo "Generated src/assets.lua"
 
 # ── Step 2: concatenate modules ────────────────────────────────
-MODULES=(yaml executor log assets config theme core core_functions shell autoload git ai api)
+MODULES=(yaml executor log assets config theme core core_functions icons shell autoload git ai api)
 
 OUTPUT="--[[
     TempleEx - Full Build (Single File)

@@ -11,6 +11,15 @@ local ThemeEngine = require(script.Parent.theme)
 local Core = require(script.Parent.core)
 local Config = require(script.Parent.config)
 local Log = require(script.Parent.log)
+local Icons = require(script.Parent.icons)
+
+-- Material icon name per dock pin id
+local PIN_ICON = {
+    fly = "flight", speed = "directions_run", esp = "visibility", noclip = "block",
+    infjump = "arrow_upward", fullbright = "wb_sunny", hitbox = "center_focus",
+    freecam = "photo_camera", themes = "palette", ai = "auto_awesome", scripts = "code",
+}
+Shell._dockIconSetters = {}   -- recolor functions, run on theme change
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -102,6 +111,10 @@ local function updateTokens()
         animSpeed = fx.animation_speed or 1.0,
         animations = fx.animations == nil and true or fx.animations,
     }
+    -- Recolor existing dock Material icons to the new theme.
+    for _, setter in ipairs(Shell._dockIconSetters) do
+        pcall(setter, tokens.dockIcon)
+    end
 end
 
 -- Subscribe to theme changes
@@ -936,12 +949,19 @@ function Shell.addDockPin(pinId)
         end
     end
 
+    -- Prefer a Material icon (VectorGraphic); fall back to the emoji glyph.
+    local iconName = PIN_ICON[pinId]
+    if not iconName then
+        local pin = Shell.dockPins[pinId]
+        iconName = pin and pin.iconName
+    end
+
     local btn = createInstance("TextButton", {
         Name = "DockPin_" .. pinId,
         Size = UDim2.new(0, Shell.dockConfig.iconSize, 0, Shell.dockConfig.iconSize),
         BackgroundColor3 = tokens.elementBg,
         BackgroundTransparency = 0.3,
-        Text = icon,
+        Text = iconName and "" or icon,
         TextColor3 = tokens.dockIcon,
         TextSize = Shell.dockConfig.iconSize * 0.5,
         Font = Enum.Font.GothamBold,
@@ -950,6 +970,11 @@ function Shell.addDockPin(pinId)
     })
     roundCorners(btn, 12)
     addStroke(btn, tokens.border)
+
+    if iconName then
+        local _, setIcon = Icons.new(iconName, btn, Shell.dockConfig.iconSize * 0.5, tokens.dockIcon)
+        table.insert(Shell._dockIconSetters, setIcon)
+    end
 
     -- Active indicator
     local indicator = createInstance("Frame", {
