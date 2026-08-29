@@ -382,9 +382,12 @@ task.spawn(function()
     end
 end)
 
--- Save on game close
-game:BindToClose(function()
-    Autoload.saveSession()
+-- Save on game close. BindToClose is a SERVER-only API and throws on a client
+-- exploit, so guard it; the 30s autosave loop above still persists state.
+pcall(function()
+    game:BindToClose(function()
+        Autoload.saveSession()
+    end)
 end)
 
 return Autoload

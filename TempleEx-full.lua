@@ -4231,8 +4231,8 @@ function Shell.bindGlobalKeys(wmConfig)
 
     -- Entry key (toggle all windows / hub)
     local entryKey = Config.get("temple.entry_key") or "RightControl"
-    local entryKeyCode = Enum.KeyCode[entryKey]
-    if entryKeyCode then
+    local okEntry, entryKeyCode = pcall(function() return Enum.KeyCode[entryKey] end)
+    if okEntry and entryKeyCode then
         UserInputService.InputBegan:Connect(function(input, processed)
             if processed then return end
             if input.KeyCode == entryKeyCode then
@@ -4255,15 +4255,20 @@ function Shell.bindGlobalKeys(wmConfig)
     end)
 
     -- Workspace switching (Ctrl+1, Ctrl+2, etc.)
+    -- Roblox top-row digit enum names are One..Nine, Zero (NOT "Number1").
+    local DIGIT_KEYS = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero"}
     for i = 1, 8 do
-        UserInputService.InputBegan:Connect(function(input, processed)
-            if processed then return end
-            if input.KeyCode == Enum.KeyCode["Number" .. i] and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                if i <= Shell.wmConfig.workspaces then
-                    Shell.switchWorkspace(i)
+        local digitKey = Enum.KeyCode[DIGIT_KEYS[i]]
+        if digitKey then
+            UserInputService.InputBegan:Connect(function(input, processed)
+                if processed then return end
+                if input.KeyCode == digitKey and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    if i <= Shell.wmConfig.workspaces then
+                        Shell.switchWorkspace(i)
+                    end
                 end
-            end
-        end)
+            end)
+        end
     end
 end
 
@@ -4744,9 +4749,12 @@ task.spawn(function()
     end
 end)
 
--- Save on game close
-game:BindToClose(function()
-    Autoload.saveSession()
+-- Save on game close. BindToClose is a SERVER-only API and throws on a client
+-- exploit, so guard it; the 30s autosave loop above still persists state.
+pcall(function()
+    game:BindToClose(function()
+        Autoload.saveSession()
+    end)
 end)
 
 return Autoload
@@ -5827,8 +5835,8 @@ function TempleApi.Window(options)
 
     -- Keybind for toggle
     if window.keybind and window.keybind ~= "None" then
-        local keyCode = Enum.KeyCode[window.keybind]
-        if keyCode then
+        local okKey, keyCode = pcall(function() return Enum.KeyCode[window.keybind] end)
+        if okKey and keyCode then
             UserInputService.InputBegan:Connect(function(input, processed)
                 if processed then return end
                 if input.KeyCode == keyCode then
@@ -6785,8 +6793,10 @@ function TempleApi.Bind(options)
     if default then
         local keyCode = default
         if type(default) == "string" then
-            keyCode = Enum.KeyCode[default]
+            local okKey, kc = pcall(function() return Enum.KeyCode[default] end)
+            keyCode = (okKey and kc) or nil
         end
+        if keyCode then
 
         UserInputService.InputBegan:Connect(function(input, processed)
             if processed then return end
@@ -6794,6 +6804,7 @@ function TempleApi.Bind(options)
                 if callback then pcall(callback, input) end
             end
         end)
+        end
     end
 
     return bind

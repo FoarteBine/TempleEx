@@ -288,8 +288,8 @@ function TempleApi.Window(options)
 
     -- Keybind for toggle
     if window.keybind and window.keybind ~= "None" then
-        local keyCode = Enum.KeyCode[window.keybind]
-        if keyCode then
+        local okKey, keyCode = pcall(function() return Enum.KeyCode[window.keybind] end)
+        if okKey and keyCode then
             UserInputService.InputBegan:Connect(function(input, processed)
                 if processed then return end
                 if input.KeyCode == keyCode then
@@ -1246,8 +1246,10 @@ function TempleApi.Bind(options)
     if default then
         local keyCode = default
         if type(default) == "string" then
-            keyCode = Enum.KeyCode[default]
+            local okKey, kc = pcall(function() return Enum.KeyCode[default] end)
+            keyCode = (okKey and kc) or nil
         end
+        if keyCode then
 
         UserInputService.InputBegan:Connect(function(input, processed)
             if processed then return end
@@ -1255,6 +1257,7 @@ function TempleApi.Bind(options)
                 if callback then pcall(callback, input) end
             end
         end)
+        end
     end
 
     return bind
