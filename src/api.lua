@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx Public API (TempleApi)
     The interface that third-party scripts use
 ]]
@@ -16,8 +16,36 @@ local Log = require(script.Parent.log)
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Shared tween helper (must be defined before use)
+local function tween(obj, props, duration)
+    if not obj then return end
+    local t = TweenService:Create(obj, TweenInfo.new(duration or 0.15, Enum.EasingStyle.Quad), props)
+    t:Play()
+    return t
+end
+
+-- Safe geometry accessors (theme sections may be missing)
+local function themeRadius(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.radius and t.geometry.radius.window) or fallback
+end
+local function themePadding(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.padding and t.geometry.padding.window) or fallback
+end
+local function themeElemRadius(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.radius and t.geometry.radius.element) or fallback
+end
+local function themeElemPadding(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
+end
 
 TempleApi.version = {major = 1, minor = 0, patch = 0}
 TempleApi._windows = {}
@@ -35,12 +63,22 @@ TempleApi._scriptContext = nil
 function TempleApi.init()
     if TempleApi._initialized then return TempleApi end
 
-    -- Initialize subsystems
-    Config.init(Executor.fs_read(".") and "." or "workspace") -- will be overridden by bootloader
-    ThemeEngine.loadAllThemes(Config.get("paths.themes") or "themes")
-    local activeTheme = Config.get("theme.active") or "midnight-temple"
-    ThemeEngine.applyTheme(activeTheme)
-    Shell.init()
+    -- Initialize subsystems (idempotent — main init may have done this already)
+    local Config = require(script.Parent.config)
+    if not Config.data then
+        Config.init("")  -- executor workspace root
+    end
+    local ThemeEngine = require(script.Parent.theme)
+    if not next(ThemeEngine.themes) then
+        ThemeEngine.loadAllThemes(Config.get("paths.themes") or "themes")
+    end
+    if not ThemeEngine.currentTheme then
+        ThemeEngine.applyTheme(Config.get("theme.active") or "midnight-temple")
+    end
+    local Shell = require(script.Parent.shell)
+    if not Shell.screenGui then
+        Shell.init()
+    end
 
     -- Load core state
     Core.loadState(Config.data)
@@ -61,6 +99,8 @@ end
 -- ============================================================
 -- UI: WINDOW MANAGEMENT
 -- ============================================================
+local createSection  -- forward declaration (defined after widgets section)
+
 function TempleApi.Window(options)
     options = options or {}
     TempleApi._windowIdCounter = TempleApi._windowIdCounter + 1
@@ -90,9 +130,8 @@ function TempleApi.Window(options)
 
     -- Create GUI
     local size = options.size or Config.get("behavior.window_default.size") or {520, 380}
-    local theme = ThemeEngine.currentRawTheme
-    local radius = theme and theme.geometry.radius.window or 12
-    local padding = theme and theme.geometry.padding.window or 14
+    local radius = themeRadius(12)
+    local padding = themePadding(14)
 
     window.gui = Instance.new("Frame")
     window.gui.Name = "TempleWindow_" .. id
@@ -213,7 +252,8 @@ function TempleApi.Window(options)
     window.container.Parent = window.gui
 
     -- Sidebar
-    local sidebarWidth = theme and theme.layout.sidebar == "left" and 160 or 0
+    local rawTheme = ThemeEngine.currentRawTheme
+    local sidebarWidth = (rawTheme and rawTheme.layout and rawTheme.layout.sidebar == "left") and 160 or 0
     window.sidebar = Instance.new("Frame")
     window.sidebar.Name = "Sidebar"
     window.sidebar.Size = UDim2.new(0, sidebarWidth, 1, 0)
@@ -272,6 +312,7 @@ function TempleApi.Window(options)
             contentFrame = nil,
             window = self
         }
+        tab.Section = function(self2, secTitle) return createSection(tab, secTitle) end
 
         -- Tab button in sidebar
         tab.button = Instance.new("TextButton")
@@ -419,9 +460,8 @@ end
 local function createWidget(tab, widgetType, options)
     options = options or {}
     local parent = tab.contentFrame
-    local theme = ThemeEngine.currentRawTheme
-    local elemRadius = theme and theme.geometry.radius.element or 8
-    local elemPadding = theme and theme.geometry.padding.element or 8
+    local elemRadius = themeElemRadius(8)
+    local elemPadding = themeElemPadding(8)
 
     local frame = Instance.new("Frame")
     frame.Name = widgetType .. "_" .. (options.flag or HttpService:GenerateGUID(false):sub(1,8))
@@ -487,7 +527,7 @@ local function createWidget(tab, widgetType, options)
     return frame
 end
 
-function TempleApi.Tab:Section(title)
+createSection = function(self, title)
     local section = {
         title = title,
         tab = self,
@@ -1241,6 +1281,8 @@ end
 -- ============================================================
 -- THEME API
 -- ============================================================
+TempleApi.Theme = {}
+
 function TempleApi.Theme:get(role)
     return ThemeEngine.getToken(role)
 end
@@ -1336,6 +1378,8 @@ end
 -- ============================================================
 -- CONFIG PERSISTENCE FOR SCRIPTS
 -- ============================================================
+TempleApi.Config = {}
+
 function TempleApi.Config:save(scriptId)
     local data = {}
     -- Collect flags for this script (could namespace by scriptId)
@@ -1352,7 +1396,7 @@ end
 function TempleApi.Config:load(scriptId)
     local Executor = require(script.Parent.executor)
     local path = "cache/configs/" .. scriptId .. ".json"
-    local ok, content = pcall(Executor.fs_read, path)
+    local ok, content = Executor.fs_read(path)
     if ok and content then
         local ok2, data = pcall(function() return HttpService:JSONDecode(content) end)
         if ok2 and data then
@@ -1368,6 +1412,8 @@ end
 -- ============================================================
 -- WEBHOOK
 -- ============================================================
+TempleApi.Webhook = {}
+
 function TempleApi.Webhook:send(url, payload)
     local body = HttpService:JSONEncode(payload)
     local res = Executor.http(url, {
@@ -1402,6 +1448,8 @@ end
 -- ============================================================
 -- SCRIPT CONTEXT
 -- ============================================================
+TempleApi.Script = {}
+
 function TempleApi.Script:id()
     return TempleApi._scriptContext or "unknown"
 end
@@ -1438,17 +1486,6 @@ function TempleApi.IYCompat()
         Notify = TempleApi.Notify,
         -- ... more compat methods
     }
-end
-
--- ============================================================
--- HELPER: tween
--- ============================================================
-local function tween(obj, props, duration)
-    if not obj then return end
-    local TweenService = game:GetService("TweenService")
-    local t = TweenService:Create(obj, TweenInfo.new(duration or 0.15, Enum.EasingStyle.Quad), props)
-    t:Play()
-    return t
 end
 
 return TempleApi

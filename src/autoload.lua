@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx Autoload System
     Handles script auto-loading, session restore, rejoin relaunch
 ]]
@@ -181,7 +181,7 @@ function Autoload.loadScript(pluginDef)
             fullPath = workspacePath .. "/" .. fullPath
         end
 
-        local ok, content = pcall(Executor.fs_read, fullPath)
+        local ok, content = Executor.fs_read(fullPath)
         if not ok or not content then
             return false, "Failed to read script file: " .. fullPath
         end
@@ -246,7 +246,7 @@ end
 
 function Autoload.restoreSession()
     local Executor = require(script.Parent.executor)
-    local ok, content = pcall(Executor.fs_read, "cache/configs/session.json")
+    local ok, content = Executor.fs_read("cache/configs/session.json")
     if not ok or not content then return end
 
     local ok2, session = pcall(function() return HttpService:JSONDecode(content) end)
@@ -270,7 +270,7 @@ end
 function Autoload.setupRejoinRelaunch()
     local reloadCode = [[
         -- TempleEx Auto-Reload on Rejoin
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()
     ]]
 
     local ok, err = Executor.queue_on_teleport(reloadCode)
@@ -289,7 +289,7 @@ function Autoload.setupRespawnFallback()
         task.wait(1)
         -- Check if TempleEx is already loaded
         if not _G.TempleExLoaded then
-            local reloadCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()'
+            local reloadCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()'
             pcall(function() loadstring(reloadCode)() end)
         end
     end)
@@ -303,7 +303,7 @@ function Autoload.startFolderWatch()
     local knownFiles = {}
 
     local function scan()
-        local ok, files = pcall(Executor.fs_list, pluginsPath)
+        local ok, files = Executor.fs_list(pluginsPath)
         if not ok or not files then return end
 
         local current = {}

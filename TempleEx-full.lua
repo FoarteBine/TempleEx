@@ -16,232 +16,354 @@ local function TempleExRequire(name)
 end
 -- Module: yaml
 --[[
-    TempleEx YAML Parser (minimal subset for config/theme files)
-    Supports: mappings, sequences, scalars (strings, numbers, bools, null), comments preservation (best-effort)
-    Does NOT support: anchors/aliases, flow styles, complex types, directives
+    TempleEx YAML Parser (subset)
+    Supports: block mappings, block sequences, flow mappings {a: 1}, flow sequences [a, b],
+              scalars (string/number/bool/null), quoted strings, comments.
+    Handles "- key: value" (mapping inside a sequence item) for plugins lists.
 ]]
 
 local YAML = {}
 
--- Trim whitespace
-local function trim(s)
-    return s:match("^%s*(.-)%s*$")
+local function trim(s) return (s:match("^%s*(.-)%s*$")) end
+
+-- Remove a trailing "# comment" that is not inside quotes
+local function stripComment(line)
+    local inQuote
+    for idx = 1, #line do
+        local c = line:sub(idx, idx)
+        if inQuote then
+            if c == inQuote then inQuote = nil end
+        elseif c == '"' or c == "'" then
+            inQuote = c
+        elseif c == "#" then
+            if idx == 1 or line:sub(idx-1, idx-1) == " " then
+                return line:sub(1, idx - 1)
+            end
+        end
+    end
+    return line
 end
 
--- Check if line is comment or empty
-local function isCommentOrEmpty(line)
-    local t = trim(line)
-    return t == "" or t:sub(1,1) == "#"
-end
-
--- Parse a scalar value (string, number, bool, null)
+-- Parse a scalar string into a Lua value
 local function parseScalar(value)
     value = trim(value)
-    -- Null
-    if value == "null" or value == "~" or value == "" then
-        return nil
-    end
-    -- Boolean
-    if value == "true" or value == "yes" or value == "on" then
-        return true
-    end
-    if value == "false" or value == "no" or value == "off" then
-        return false
-    end
-    -- Number
+    if value == "" or value == "null" or value == "~" then return nil end
+    if value == "true" or value == "yes" then return true end
+    if value == "false" or value == "no" then return false end
     local num = tonumber(value)
-    if num then
-        return num
-    end
-    -- String (strip quotes if present)
+    if num then return num end
     if value:sub(1,1) == '"' and value:sub(-1) == '"' then
-        return value:sub(2, -2):gsub('\\"', '"'):gsub('\\\\', '\\')
+        return (value:sub(2, -2):gsub('\\"', '"'):gsub('\\\\', '\\'))
     end
     if value:sub(1,1) == "'" and value:sub(-1) == "'" then
-        return value:sub(2, -2):gsub("''", "'")
+        return (value:sub(2, -2):gsub("''", "'"))
     end
     return value
 end
 
--- Parse YAML content into Lua table
--- Returns (table, errors[])
-function YAML.parse(content)
-    local lines = {}
-    for line in content:gmatch("([^\n]*)\n?") do
-        table.insert(lines, line)
-    end
-
-    local root = {}
-    local stack = {{ indent = -1, node = root, key = nil, isArray = false }}
-    local errors = {}
-    local lineNum = 0
-
-    local function currentContext()
-        return stack[#stack]
-    end
-
-    local function pushContext(indent, node, key, isArray)
-        table.insert(stack, { indent = indent, node = node, key = key, isArray = isArray })
-    end
-
-    local function popContext()
-        table.remove(stack)
-    end
-
-    local function addValue(parent, key, value, isArrayItem)
-        if isArrayItem then
-            table.insert(parent, value)
-        else
-            parent[key] = value
+-- Split "key: value" respecting quotes; returns key, value or nil
+local function splitKeyValue(text)
+    local inQuote
+    for idx = 1, #text do
+        local c = text:sub(idx, idx)
+        if inQuote then
+            if c == inQuote then inQuote = nil end
+        elseif c == '"' or c == "'" then
+            inQuote = c
+        elseif c == ":" then
+            local key = trim(text:sub(1, idx - 1))
+            local val = trim(text:sub(idx + 1))
+            if key ~= "" then return key, val end
+            return nil
         end
     end
-
-    while lineNum < #lines do
-        lineNum = lineNum + 1
-        local line = lines[lineNum]
-        local rawLine = line
-
-        -- Preserve leading spaces for indent calculation
-        local indent = 0
-        while line:sub(indent + 1, indent + 1) == " " do
-            indent = indent + 1
-        end
-        local content = trim(line:sub(indent + 1))
-
-        if isCommentOrEmpty(content) then
-            -- Skip comments for now (could store for round-trip later)
-        else
-            -- Handle sequence item (starts with "- ")
-            local isArrayItem = false
-            local itemContent = content
-            if content:sub(1, 2) == "- " then
-                isArrayItem = true
-                itemContent = trim(content:sub(3))
-            end
-
-            -- Find appropriate parent context
-            while #stack > 0 and currentContext().indent >= indent do
-                popContext()
-            end
-
-            local ctx = currentContext()
-            if not ctx then
-                table.insert(errors, "Line " .. lineNum .. ": Indent error")
-                break
-            end
-
-            if itemContent:find(":", 1, true) then
-                -- Key-value pair
-                local key, val = itemContent:match("^([^:]+):%s*(.*)$")
-                key = trim(key)
-                val = trim(val)
-
-                if val == "" or val == "{" or val == "[" then
-                    -- Nested object/array - create new table
-                    local newNode = {}
-                    addValue(ctx.node, ctx.key, newNode, ctx.isArray and not ctx.key)
-                    if ctx.isArray and not ctx.key then
-                        -- We're in an array, the new node is the array item
-                        ctx.key = #ctx.node
-                    else
-                        ctx.key = key
-                    end
-                    ctx.isArray = false
-                    pushContext(indent, newNode, key, false)
-                else
-                    -- Simple value
-                    local parsed = parseScalar(val)
-                    addValue(ctx.node, key, parsed, isArrayItem)
-                end
-            else
-                -- Just a value (array item without key)
-                if isArrayItem then
-                    local parsed = parseScalar(itemContent)
-                    addValue(ctx.node, nil, parsed, true)
-                else
-                    -- Could be a bare string key for next line? Unlikely in our subset.
-                    table.insert(errors, "Line " .. lineNum .. ": Unexpected format: " .. content)
-                end
-            end
-        end
-    end
-
-    -- Handle inline arrays/objects (very basic)
-    -- For our use case, we keep it simple.
-
-    return root, errors
+    return nil
 end
 
--- Serialize Lua table to YAML (basic, no comment preservation)
+-- Does this string look like "key: value" (not a URL scalar)?
+local function looksLikeKey(s)
+    if s:match("^[\"']") then return false end
+    local before = s:match("^([^:]+):")
+    if not before then return false end
+    local after = s:sub(#before + 2, #before + 2)
+    if after ~= "" and after ~= " " then return false end
+    return true
+end
+
+-- Split flow content on top-level commas
+local function splitFlow(s)
+    local parts, buf, depth, inQuote = {}, "", 0, nil
+    for idx = 1, #s do
+        local c = s:sub(idx, idx)
+        if inQuote then
+            buf = buf .. c
+            if c == inQuote then inQuote = nil end
+        elseif c == '"' or c == "'" then
+            inQuote = c; buf = buf .. c
+        elseif c == "{" or c == "[" then
+            depth = depth + 1; buf = buf .. c
+        elseif c == "}" or c == "]" then
+            depth = depth - 1; buf = buf .. c
+        elseif c == "," and depth == 0 then
+            parts[#parts + 1] = buf; buf = ""
+        else
+            buf = buf .. c
+        end
+    end
+    if trim(buf) ~= "" then parts[#parts + 1] = buf end
+    return parts
+end
+
+-- forward declarations
+local parseInline, parseFlowMap, parseFlowSeq
+
+parseFlowMap = function(s)
+    local inner = s:match("^%{(.-)%}$") or s:sub(2, -2)
+    local map = {}
+    if trim(inner) == "" then return map end
+    for _, part in ipairs(splitFlow(inner)) do
+        local k, v = splitKeyValue(part)
+        if k then map[k] = parseInline(v) end
+    end
+    return map
+end
+
+parseFlowSeq = function(s)
+    local inner = s:match("^%[(.-)%]$") or s:sub(2, -2)
+    local arr = {}
+    if trim(inner) == "" then return arr end
+    for _, part in ipairs(splitFlow(inner)) do
+        arr[#arr + 1] = parseInline(part)
+    end
+    return arr
+end
+
+parseInline = function(s)
+    s = trim(s)
+    if s == "" then return nil end
+    local first = s:sub(1, 1)
+    if first == "{" then return parseFlowMap(s) end
+    if first == "[" then return parseFlowSeq(s) end
+    return parseScalar(s)
+end
+
+-- ============================================================
+-- BLOCK PARSER (indentation based, recursive descent)
+-- ============================================================
+function YAML.parse(content)
+    local lines = {}
+    for raw in content:gmatch("[^\r\n]+") do
+        local stripped = stripComment(raw)
+        local indent = #stripped - #stripped:match("^%s*(.*)$")
+        local text = trim(stripped)
+        if text ~= "" then
+            lines[#lines + 1] = { indent = indent, text = text }
+        end
+    end
+
+    local i = 1
+    local errors = {}
+    local function cur() return lines[i] end
+
+    local parseBlock, parseMapping, parseSequence
+
+    parseBlock = function(indent)
+        local line = cur()
+        if not line then return nil end
+        if line.text == "-" or line.text:sub(1, 2) == "- " then
+            return parseSequence(indent)
+        else
+            return parseMapping(indent)
+        end
+    end
+
+    -- parse a mapping whose first entry text is already known (from "- key: value")
+    local function parseMappingFromInline(firstText, keyIndent)
+        local map = {}
+        local key, rest = splitKeyValue(firstText)
+        i = i + 1  -- consume the "- ..." line
+        if key then
+            rest = trim(rest or "")
+            if rest == "" then
+                local nxt = cur()
+                if nxt and nxt.indent > keyIndent then
+                    map[key] = parseBlock(nxt.indent)
+                else
+                    map[key] = nil
+                end
+            else
+                map[key] = parseInline(rest)
+            end
+        end
+        -- subsequent keys at keyIndent
+        while cur() and cur().indent == keyIndent and cur().text:sub(1, 1) ~= "-" do
+            local line = cur()
+            local k2, r2 = splitKeyValue(line.text)
+            if not k2 then i = i + 1 break end
+            i = i + 1
+            r2 = trim(r2 or "")
+            if r2 == "" then
+                local nxt = cur()
+                if nxt and nxt.indent > keyIndent then
+                    map[k2] = parseBlock(nxt.indent)
+                else
+                    map[k2] = nil
+                end
+            else
+                map[k2] = parseInline(r2)
+            end
+        end
+        return map
+    end
+
+    parseMapping = function(indent)
+        local map = {}
+        while cur() and cur().indent == indent do
+            local line = cur()
+            if line.text == "-" or line.text:sub(1, 2) == "- " then break end
+            local key, rest = splitKeyValue(line.text)
+            if not key then
+                i = i + 1
+                errors[#errors + 1] = "Unexpected line: " .. line.text
+            else
+                i = i + 1
+                rest = trim(rest or "")
+                if rest == "" then
+                    local nxt = cur()
+                    if nxt and nxt.indent > indent then
+                        map[key] = parseBlock(nxt.indent)
+                    elseif nxt and nxt.indent == indent and (nxt.text == "-" or nxt.text:sub(1,2) == "- ") then
+                        map[key] = parseSequence(indent)
+                    else
+                        map[key] = nil
+                    end
+                else
+                    map[key] = parseInline(rest)
+                end
+            end
+        end
+        return map
+    end
+
+    parseSequence = function(indent)
+        local arr = {}
+        while cur() and cur().indent == indent and (cur().text == "-" or cur().text:sub(1, 2) == "- ") do
+            local line = cur()
+            local rest = (line.text == "-") and "" or trim(line.text:sub(3))
+            local keyIndent = indent + 2
+            if rest == "" then
+                i = i + 1
+                local nxt = cur()
+                if nxt and nxt.indent > indent then
+                    arr[#arr + 1] = parseBlock(nxt.indent)
+                else
+                    arr[#arr + 1] = nil
+                end
+            elseif looksLikeKey(rest) then
+                arr[#arr + 1] = parseMappingFromInline(rest, keyIndent)
+            else
+                i = i + 1
+                arr[#arr + 1] = parseInline(rest)
+            end
+        end
+        return arr
+    end
+
+    local result
+    if #lines == 0 then
+        result = {}
+    else
+        result = parseBlock(lines[1].indent)
+    end
+    return result, errors
+end
+
+-- ============================================================
+-- STRINGIFY (block style, round-trips with the parser above)
+-- ============================================================
+local function needsQuote(s)
+    if s == "" then return true end
+    if tonumber(s) or s == "true" or s == "false" or s == "null" then return true end
+    if s:match("^[%w_%-%.]+$") then return false end
+    return true
+end
+
+local function fmtScalar(v)
+    if v == nil then return "null" end
+    local tv = type(v)
+    if tv == "boolean" then return v and "true" or "false" end
+    if tv == "number" then return tostring(v) end
+    if tv == "string" then
+        if needsQuote(v) then
+            return '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
+        end
+        return v
+    end
+    return "null"
+end
+
+local function isSeq(t)
+    local n = 0
+    for k in pairs(t) do
+        if type(k) ~= "number" then return false end
+        n = n + 1
+    end
+    if n == 0 then return nil end
+    for idx = 1, n do if t[idx] == nil then return false end end
+    return true
+end
+
 function YAML.stringify(tbl, indent)
     indent = indent or 0
-    local spaces = string.rep("  ", indent)
     local lines = {}
 
-    local function isArray(t)
-        if type(t) ~= "table" then return false end
-        local max = 0
-        for k, _ in pairs(t) do
-            if type(k) == "number" and k > 0 then
-                max = math.max(max, k)
-            else
-                return false
+    local function emit(t, ind)
+        local p = string.rep("  ", ind)
+        local seq = isSeq(t)
+        if seq then
+            for _, v in ipairs(t) do
+                if type(v) == "table" then
+                    if next(v) == nil then
+                        lines[#lines + 1] = p .. "- {}"
+                    else
+                        local saved = lines
+                        lines = {}
+                        emit(v, ind + 1)
+                        local block = lines
+                        lines = saved
+                        for j, bl in ipairs(block) do
+                            if j == 1 then
+                                lines[#lines + 1] = p .. "- " .. bl:match("^%s*(.*)$")
+                            else
+                                lines[#lines + 1] = bl
+                            end
+                        end
+                    end
+                else
+                    lines[#lines + 1] = p .. "- " .. fmtScalar(v)
+                end
             end
-        end
-        return max > 0 and max == #t
-    end
-
-    local function formatValue(v)
-        if v == nil then
-            return "null"
-        elseif type(v) == "boolean" then
-            return v and "true" or "false"
-        elseif type(v) == "number" then
-            return tostring(v)
-        elseif type(v) == "string" then
-            -- Quote if contains special chars or looks like number/bool
-            if v:match("^[%w_%-%.]+$") and not v:match("^%d") and v ~= "true" and v ~= "false" and v ~= "null" then
-                return v
-            end
-            return '"' .. v:gsub('"', '\\"'):gsub("\\", "\\\\") .. '"'
         else
-            return "null"
-        end
-    end
-
-    if isArray(tbl) then
-        for _, v in ipairs(tbl) do
-            if type(v) == "table" then
-                table.insert(lines, spaces .. "-")
-                for _, subLine in ipairs(YAML.stringify(v, indent + 1):split("\n")) do
-                    if subLine ~= "" then
-                        table.insert(lines, spaces .. "  " .. subLine)
+            for k, v in pairs(t) do
+                if type(v) == "table" then
+                    if next(v) == nil then
+                        lines[#lines + 1] = p .. tostring(k) .. ": {}"
+                    else
+                        lines[#lines + 1] = p .. tostring(k) .. ":"
+                        emit(v, ind + 1)
                     end
+                else
+                    lines[#lines + 1] = p .. tostring(k) .. ": " .. fmtScalar(v)
                 end
-            else
-                table.insert(lines, spaces .. "- " .. formatValue(v))
-            end
-        end
-    else
-        for k, v in pairs(tbl) do
-            local key = tostring(k)
-            if type(v) == "table" then
-                table.insert(lines, spaces .. key .. ":")
-                for _, subLine in ipairs(YAML.stringify(v, indent + 1):split("\n")) do
-                    if subLine ~= "" then
-                        table.insert(lines, subLine)
-                    end
-                end
-            else
-                table.insert(lines, spaces .. key .. ": " .. formatValue(v))
             end
         end
     end
 
+    emit(tbl, indent)
     return table.concat(lines, "\n")
 end
 
--- Add split to string
+-- string:split helper (used by config path lookups)
 if not string.split then
     function string:split(sep)
         local t = {}
@@ -628,7 +750,7 @@ function Log.init(config)
     logFile = config.file
     if logFile then
         -- Ensure log directory exists
-        local Executor = require(script.Parent.executor)
+        local Executor = TempleExRequire("executor")
         local dir = logFile:match("^(.+)[/\\][^/\\]+$")
         if dir then
             pcall(Executor.fs_mkdir, dir)
@@ -642,7 +764,7 @@ end
 
 local function writeToFile(msg)
     if not logFile then return end
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     pcall(Executor.fs_append, logFile, msg .. "\n")
 end
 
@@ -673,7 +795,7 @@ local function log(level, ...)
     -- File
     writeToFile(msg)
     -- Console
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     if Executor.info.capabilities.rconsole then
         Executor.console_print(msg)
     else
@@ -697,6 +819,386 @@ end
 
 return Log
 
+-- Module: assets
+-- AUTO-GENERATED by build.ps1 from themes/ and agents/. Do not edit.
+local Assets = {}
+Assets.files = {}
+Assets.files["themes/default.yaml"] = [==[
+temple_theme: 1
+name: Default Temple
+author: temple
+meta:
+  tags: [dark, neutral, default]
+  description: "Базовая тема TempleEx — нейтральный тёмный фон, синий акцент"
+
+palette:
+  bg-0: "#0a0d14"
+  bg-1: "#11151f"
+  bg-2: "#1a1f2e"
+  fg-0: "#e0e4ec"
+  fg-1: "#8a91a3"
+  accent: "#4a9eff"
+  accent-2: "#00d4aa"
+  danger: "#ff4d6a"
+  success: "#2ed573"
+  warning: "#ffa502"
+
+tokens:
+  window.bg: palette.bg-1
+  window.border: palette.bg-2
+  window.title.fg: palette.fg-0
+  window.close.hover: palette.danger
+  sidebar.bg: palette.bg-0
+  sidebar.item.active.bg: palette.accent
+  sidebar.item.fg: palette.fg-1
+  tab.active: palette.accent
+  tab.idle.fg: palette.fg-1
+  tab.hover: palette.bg-2
+  section.header.fg: palette.fg-0
+  element.bg: palette.bg-2
+  element.border: palette.bg-1
+  element.focus: palette.accent
+  text.primary: palette.fg-0
+  text.muted: palette.fg-1
+  text.accent: palette.accent
+  toggle.track.off: palette.bg-2
+  toggle.track.on: palette.accent
+  toggle.knob: palette.fg-0
+  slider.fill: palette.accent
+  slider.knob: palette.fg-0
+  dropdown.bg: palette.bg-2
+  dropdown.item.hover: palette.bg-1
+  button.primary.bg: palette.accent
+  button.primary.fg: palette.bg-0
+  button.ghost.fg: palette.fg-0
+  button.danger.bg: palette.danger
+  input.bg: palette.bg-2
+  input.placeholder: palette.fg-1
+  keybind.bg: palette.bg-2
+  notification.bg: palette.bg-1
+  notification.fg: palette.fg-0
+  notification.level.info: palette.accent
+  notification.level.success: palette.success
+  notification.level.warn: palette.warning
+  notification.level.error: palette.danger
+  menubar.bg: palette.bg-0
+  menubar.fg: palette.fg-0
+  dock.bg: palette.bg-0
+  dock.icon: palette.fg-1
+  dock.icon.active: palette.accent-2
+  dock.indicator: palette.accent
+  snap.preview: palette.accent
+  switcher.bg: palette.bg-1
+  workspace.active.fg: palette.accent
+
+typography:
+  font: GothamSSm
+  sizes: { xs: 12, sm: 14, md: 16, lg: 20, xl: 26 }
+
+geometry:
+  radius: { window: 12, element: 8, pill: 999 }
+  padding: { window: 14, element: 8 }
+  spacing: 6
+  shadow: { blur: 12, transparency: 0.5, color: "#000000" }
+
+effects:
+  blur: true
+  gradient: { angle: 135, from: palette.bg-1, to: palette.bg-0 }
+  animations: true
+  animation_speed: 1.0
+
+icons:
+  set: temple-default
+  overrides: {}
+
+layout:
+  sidebar: left
+  window_opacity: 0.96
+]==]
+Assets.files["themes/midnight-temple.yaml"] = [==[
+temple_theme: 1
+name: Midnight Temple
+author: temple
+extends: default
+meta:
+  tags: [dark, blue, glass, neon]
+  description: "Ночной храм: глубокий индиго + неоновый фиолетовый акцент"
+
+palette:
+  bg-0: "#060810"
+  bg-1: "#0c0f1a"
+  bg-2: "#141828"
+  fg-0: "#e8ecf8"
+  fg-1: "#9aa3c0"
+  accent: "#7c5cff"
+  accent-2: "#00e0b8"
+  danger: "#ff5470"
+  success: "#3ddc84"
+  warning: "#ffb454"
+
+tokens:
+  window.bg: palette.bg-1
+  window.border: palette.bg-2
+  window.title.fg: palette.fg-0
+  window.close.hover: palette.danger
+  sidebar.bg: palette.bg-0
+  sidebar.item.active.bg: palette.accent
+  sidebar.item.fg: palette.fg-1
+  tab.active: palette.accent
+  tab.idle.fg: palette.fg-1
+  tab.hover: palette.bg-2
+  section.header.fg: palette.fg-0
+  element.bg: palette.bg-2
+  element.border: palette.bg-1
+  element.focus: palette.accent
+  text.primary: palette.fg-0
+  text.muted: palette.fg-1
+  text.accent: palette.accent
+  toggle.track.off: palette.bg-2
+  toggle.track.on: palette.accent
+  toggle.knob: palette.fg-0
+  slider.fill: palette.accent
+  slider.knob: palette.fg-0
+  dropdown.bg: palette.bg-2
+  dropdown.item.hover: palette.bg-1
+  button.primary.bg: palette.accent
+  button.primary.fg: palette.bg-0
+  button.ghost.fg: palette.fg-0
+  button.danger.bg: palette.danger
+  input.bg: palette.bg-2
+  input.placeholder: palette.fg-1
+  keybind.bg: palette.bg-2
+  notification.bg: palette.bg-1
+  notification.fg: palette.fg-0
+  notification.level.info: palette.accent
+  notification.level.success: palette.success
+  notification.level.warn: palette.warning
+  notification.level.error: palette.danger
+  menubar.bg: palette.bg-0
+  menubar.fg: palette.fg-0
+  dock.bg: palette.bg-0
+  dock.icon: palette.fg-1
+  dock.icon.active: palette.accent-2
+  dock.indicator: palette.accent
+  snap.preview: palette.accent
+  switcher.bg: palette.bg-1
+  workspace.active.fg: palette.accent
+
+typography:
+  font: GothamSSm
+  sizes: { xs: 12, sm: 14, md: 16, lg: 20, xl: 26 }
+
+geometry:
+  radius: { window: 14, element: 10, pill: 999 }
+  padding: { window: 16, element: 10 }
+  spacing: 8
+  shadow: { blur: 20, transparency: 0.4, color: "#000000" }
+
+effects:
+  blur: true
+  gradient: { angle: 135, from: palette.bg-1, to: palette.bg-0 }
+  animations: true
+  animation_speed: 1.0
+
+icons:
+  set: temple-default
+  overrides: {}
+
+layout:
+  sidebar: left
+  window_opacity: 0.94
+]==]
+Assets.files["agents/config-audit.md"] = [==[
+# TempleEx Config Auditor Agent Prompt
+
+You are a TempleEx configuration auditor. Your task is to analyze a `temple.yaml` or theme YAML and report issues with suggested fixes.
+
+## Input
+
+A YAML file content (either `temple.yaml` config or a theme file).
+
+## Output Format
+
+Return a JSON object:
+
+```json
+{
+  "errors": [
+    { "path": "theme.active", "message": "Theme 'foo' not found in workspace/themes/", "fix": "Change to existing theme or create themes/foo.yaml" }
+  ],
+  "warnings": [
+    { "path": "ai.provider", "message": "Using default OpenAI endpoint without API key", "fix": "Set TEMPLE_AI_KEY env var or change provider" }
+  ],
+  "info": [
+    { "path": "shell.dock.pins", "message": "Pin 'fly' references function that may not exist", "fix": "Verify function ID matches Temple.Core module" }
+  ]
+}
+```
+
+## Checks for temple.yaml
+
+1. **Schema compliance** — all required fields, types, enums.
+2. **Theme existence** — `theme.active` and `theme.fallback` files exist in `themes/`.
+3. **Function pins** — `shell.dock.pins` entries match known function IDs (`fly`, `speed`, `esp`, `noclip`, `infjump`, `fullbright`, `hitbox`, `freecam`, `themes`, `ai`, `scripts`).
+4. **Git mirrors** — URLs are valid HTTPS, at least one reachable.
+5. **AI config** — if provider needs API key, `api_key_env` is set and env var exists.
+6. **Paths** — `paths.workspace` resolvable (or "auto"), `themes/`, `plugins/` writable.
+7. **Plugin files** — each `plugins[i].file` exists (local) or is valid git URL.
+8. **WCAG contrast** — if theme specified, check token contrast (delegate to theme validator).
+
+## Checks for theme YAML
+
+1. **Schema compliance** — all required tokens, palette refs valid.
+2. **Contrast** — WCAG AA for text, WCAG AA for UI (3:1).
+3. **Extends validity** — `extends` theme exists.
+4. **Color format** — all palette values are `#RRGGBB`.
+5. **Token references** — all token values are `palette.*` refs.
+
+## Output
+
+Return ONLY the JSON object. No markdown, no commentary.
+]==]
+Assets.files["agents/theme-gen.md"] = [==[
+# TempleEx Theme Generator Agent Prompt
+
+You are a TempleEx theme generator. Your task is to create a complete, valid TempleEx theme YAML file based on a user prompt.
+
+## TempleEx Theme Format (v1)
+
+A theme is a YAML object with these required sections:
+- `temple_theme: 1` (version constant)
+- `name: string` (human-readable name)
+- `author: string` (your identifier)
+- `extends?: string` (optional base theme name, e.g., "default")
+- `meta: { tags: string[], description: string }`
+- `palette: { bg-0, bg-1, bg-2, fg-0, fg-1, accent, accent-2, danger, success, warning }` — all hex colors (#RRGGBB)
+- `tokens: object` — semantic roles mapping to palette references (e.g., "window.bg: palette.bg-1")
+- `typography: { font: string, sizes: { xs, sm, md, lg, xl } }`
+- `geometry: { radius: { window, element, pill }, padding: { window, element }, spacing: int, shadow: { blur, transparency, color } }`
+- `effects: { blur: bool, gradient: { angle, from, to }, animations: bool, animation_speed: number }`
+- `icons: { set: string, overrides: object }`
+- `layout: { sidebar: "left"|"right"|"top"|"hidden", window_opacity: number }`
+
+## Required Token Roles (must be present)
+
+window.bg, window.border, window.title.fg, window.close.hover,
+sidebar.bg, sidebar.item.active.bg, sidebar.item.fg,
+tab.active, tab.idle.fg, tab.hover,
+section.header.fg,
+element.bg, element.border, element.focus,
+text.primary, text.muted, text.accent,
+toggle.track.off, toggle.track.on, toggle.knob,
+slider.fill, slider.knob,
+dropdown.bg, dropdown.item.hover,
+button.primary.bg, button.primary.fg, button.ghost.fg, button.danger.bg,
+input.bg, input.placeholder, keybind.bg,
+notification.bg, notification.fg,
+notification.level.info, notification.level.success, notification.level.warn, notification.level.error,
+menubar.bg, menubar.fg,
+dock.bg, dock.icon, dock.icon.active, dock.indicator,
+snap.preview, switcher.bg, workspace.active.fg
+
+## Rules
+
+1. **Only output valid YAML** — no markdown, no explanations, no extra text.
+2. **All colors must be palette references** (e.g., `palette.accent`) not raw hex in tokens.
+3. **WCAG AA contrast**: `text.primary` vs `window.bg` ≥ 4.5:1, `accent` vs `window.bg` ≥ 3:1.
+4. **If `extends` is used**, only override tokens you want to change; omitted tokens inherit from base.
+4. **Semantic consistency**: `toggle.track.on` should be an accent color, `button.danger.bg` should be `palette.danger`, etc.
+5. **Default values** for optional sections can be omitted if extending `default`.
+
+## Examples
+
+User prompt: "киберпанк, неоновый розовый и циан, высокий контраст"
+→ Generate theme with pink/cyan palette, dark backgrounds, neon glow effects.
+
+User prompt: "минималистичный, белый фон, чёрный текст, без анимаций"
+→ Generate light theme, `animations: false`, clean geometry.
+
+## Output
+
+Return ONLY the YAML content. No ```yaml fences, no commentary.
+]==]
+Assets.files["agents/theme-namer.md"] = [==[
+# TempleEx Theme Namer Agent Prompt
+
+You are a TempleEx theme namer. Given a user prompt for a theme, generate the `meta` block: `name`, `slug` (filename-safe), and `tags`.
+
+## Input
+
+User prompt (e.g., "киберпанк неоновый розовый", "минималистичный светлый", "retro wave фиолетовый закат").
+
+## Output
+
+JSON object:
+```json
+{
+  "name": "Cyberpunk Neon",
+  "slug": "cyberpunk-neon",
+  "tags": ["dark", "neon", "pink", "cyan", "cyberpunk"]
+}
+```
+
+## Rules
+
+1. **slug**: lowercase, kebab-case, ASCII only, max 40 chars, no spaces. Derive from prompt keywords.
+2. **name**: Title Case, human-readable, max 50 chars.
+3. **tags**: 3-8 lowercase keywords describing visual style (dark/light, color names, vibe: neon, glass, minimal, retro, cyberpunk, anime, etc.).
+4. If prompt is in Russian, output name/tags in English (for consistency in theme registry).
+
+## Output
+
+Return ONLY the JSON object. No markdown, no commentary.
+]==]
+Assets.files["agents/theme-refine.md"] = [==[
+# TempleEx Theme Refiner Agent Prompt
+
+You are a TempleEx theme refiner. Your task is to modify an existing theme YAML based on user feedback.
+
+## Input
+
+You will receive:
+1. **Current theme YAML** (complete, valid TempleEx theme v1)
+2. **User feedback** (natural language, e.g., "сделай фон темнее", "акцент более насыщенный", "убери анимации")
+
+## Rules
+
+1. **Preserve structure**: Keep all sections, only modify values that need to change.
+2. **Minimal changes**: If user says "darker background", adjust `palette.bg-0`, `bg-1`, `bg-2` and any tokens directly referencing them. Don't rewrite unrelated tokens.
+3. **Maintain validity**: Output must pass the theme schema validation (all required tokens present, palette refs valid).
+4. **WCAG contrast**: If changes affect contrast, adjust related colors to maintain ≥ 4.5:1 for text, ≥ 3:1 for UI elements.
+5. **Preserve `extends`**: If the theme extends another, only override tokens in this file; don't inline base theme.
+6. **Semantic consistency**: `toggle.track.on` follows accent, `button.danger.bg` follows danger, etc.
+
+## Output
+
+Return ONLY the complete modified YAML. No markdown, no explanations.
+]==]
+-- Write embedded assets into the executor workspace if missing.
+-- base is the workspace path ('' = executor workspace root).
+function Assets.materialize(base)
+    local Executor = TempleExRequire("executor")
+    local written = 0
+    for relPath, content in pairs(Assets.files) do
+        local full = (base == nil or base == "") and relPath or (base .. "/" .. relPath)
+        local _, exists = Executor.fs_exists(full)
+        if not exists then
+            local dir = relPath:match("^(.+)/[^/]+$")
+            if dir then
+                local dfull = (base == nil or base == "") and dir or (base .. "/" .. dir)
+                pcall(Executor.fs_mkdir, dfull)
+            end
+            local ok = Executor.fs_write(full, content)
+            if ok then written = written + 1 end
+        end
+    end
+    return written
+end
+
+return Assets
+
+
+
 -- Module: config
 --[[
     TempleEx Config Manager
@@ -706,15 +1208,15 @@ return Log
 local Config = {}
 Config.__index = Config
 
-local YAML = require(script.Parent.yaml)
-local Executor = require(script.Parent.executor)
-local Log = require(script.Parent.log)
+local YAML = TempleExRequire("yaml")
+local Executor = TempleExRequire("executor")
+local Log = TempleExRequire("log")
 
 local DEFAULT_CONFIG = [[
 version: 1
 
 temple:
-  entry_key: "RightCtrl"
+  entry_key: "RightControl"     # Enum.KeyCode name (RightCtrl РЅРµ СЃСѓС‰РµСЃС‚РІСѓРµС‚ РІ Roblox)
   ui_mode: "hybrid"
   language: "ru"
 
@@ -748,15 +1250,15 @@ scripts:
   stagger: 200
 
 git:
-  repo: "TempleEx/TempleEx"
+  repo: "FoarteBine/TempleEx"
   channel: "stable"
   auto_update: true
   mirrors:
     - "https://raw.githubusercontent.com"
     - "https://cdn.jsdelivr.net/gh"
   registries:
-    themes: "TempleEx/themes"
-    scripts: "TempleEx/hub-index"
+    themes: "FoarteBine/TempleEx"
+    scripts: "FoarteBine/TempleEx"
 
 theme:
   active: "midnight-temple"
@@ -808,7 +1310,9 @@ Config.lastModified = 0
 Config.onChangeCallbacks = {}
 
 function Config.init(workspacePath)
-    Config.path = workspacePath .. "/temple.yaml"
+    if Config.data then return Config.data end
+    workspacePath = workspacePath or ""
+    Config.path = (workspacePath == "") and "temple.yaml" or (workspacePath .. "/temple.yaml")
     Config.ensureWorkspace(workspacePath)
     Config.load()
     if Config.data.theme.auto_reload then
@@ -817,18 +1321,23 @@ function Config.init(workspacePath)
     return Config.data
 end
 
+local function joinPath(base, sub)
+    if base == nil or base == "" then return sub end
+    return base .. "/" .. sub
+end
+
 function Config.ensureWorkspace(workspacePath)
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     pcall(Executor.fs_mkdir, workspacePath)
-    pcall(Executor.fs_mkdir, workspacePath .. "/themes")
-    pcall(Executor.fs_mkdir, workspacePath .. "/plugins")
-    pcall(Executor.fs_mkdir, workspacePath .. "/cache")
-    pcall(Executor.fs_mkdir, workspacePath .. "/cache/configs")
-    pcall(Executor.fs_mkdir, workspacePath .. "/logs")
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "themes"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "plugins"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "cache"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "cache/configs"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "logs"))
 end
 
 function Config.load()
-    local ok, content = pcall(Executor.fs_read, Config.path)
+    local ok, content = Executor.fs_read(Config.path)
     local data, errors
     if ok and content then
         data, errors = YAML.parse(content)
@@ -887,13 +1396,13 @@ function Config.save(data)
 
     -- Backup before write
     local backupPath = Config.path .. ".bak"
-    local ok, current = pcall(Executor.fs_read, Config.path)
+    local ok, current = Executor.fs_read(Config.path)
     if ok and current then
         pcall(Executor.fs_write, backupPath, current)
     end
 
     local yamlContent = YAML.stringify(data)
-    local ok, err = pcall(Executor.fs_write, Config.path, yamlContent)
+    local ok, err = Executor.fs_write(Config.path, yamlContent)
     if ok then
         Config.lastModified = os.time()
         Log.info("Config saved to", Config.path)
@@ -989,10 +1498,10 @@ return Config
 local ThemeEngine = {}
 ThemeEngine.__index = ThemeEngine
 
-local YAML = require(script.Parent.yaml)
-local Executor = require(script.Parent.executor)
-local Log = require(script.Parent.log)
-local Config = require(script.Parent.config)
+local YAML = TempleExRequire("yaml")
+local Executor = TempleExRequire("executor")
+local Log = TempleExRequire("log")
+local Config = TempleExRequire("config")
 
 ThemeEngine.themes = {}        -- name -> parsed theme table
 ThemeEngine.currentTheme = nil -- active theme name
@@ -1086,7 +1595,7 @@ end
 -- Load a single theme file
 function ThemeEngine.loadTheme(name, themesPath)
     local path = themesPath .. "/" .. name .. ".yaml"
-    local ok, content = pcall(Executor.fs_read, path)
+    local ok, content = Executor.fs_read(path)
     if not ok or not content then
         return nil, "Failed to read theme file: " .. path
     end
@@ -1111,10 +1620,12 @@ function ThemeEngine.loadTheme(name, themesPath)
             end
             baseTheme = base
         end
-        theme = ThemeEngine.mergeTheme(baseTheme.raw, theme)
+        theme = ThemeEngine.mergeTheme(baseTheme, theme)
     end
 
     -- Validate required tokens
+    theme.tokens = theme.tokens or {}
+    theme.palette = theme.palette or {}
     local missingTokens = {}
     for _, token in ipairs(REQUIRED_TOKENS) do
         if not theme.tokens[token] then
@@ -1136,21 +1647,23 @@ function ThemeEngine.loadTheme(name, themesPath)
         return nil, "Theme missing palette colors: " .. table.concat(missingPalette, ", ")
     end
 
-    theme.name = name
+    theme.slug = name
+    theme.displayName = theme.name or name
     return theme
 end
 
 -- Load all themes from directory
 function ThemeEngine.loadAllThemes(themesPath)
     ThemeEngine.themes = {}
-    local ok, files = pcall(Executor.fs_list, themesPath)
+    local ok, files = Executor.fs_list(themesPath)
     if not ok or not files then
         Log.warn("Could not list themes directory:", themesPath)
         return
     end
 
     for _, file in ipairs(files) do
-        local name = file:match("^(.+)%.yaml$")
+        -- Extract basename without path and extension (handles / and \ separators)
+        local name = file:match("([^/\\]+)%.yaml$")
         if name then
             local theme, err = ThemeEngine.loadTheme(name, themesPath)
             if theme then
@@ -1278,7 +1791,7 @@ function ThemeEngine.startWatch(themesPath)
         local lastFiles = {}
         while true do
             task.wait(2)
-            local ok, files = pcall(Executor.fs_list, themesPath)
+            local ok, files = Executor.fs_list(themesPath)
             if ok and files then
                 local current = {}
                 for _, f in ipairs(files) do
@@ -1289,7 +1802,7 @@ function ThemeEngine.startWatch(themesPath)
                 for f, _ in pairs(current) do
                     if not lastFiles[f] then
                         changed = true
-                        local name = f:match("^(.+)%.yaml$")
+                        local name = f:match("([^/\\]+)%.yaml$")
                         if name and not ThemeEngine.themes[name] then
                             local theme, err = ThemeEngine.loadTheme(name, themesPath)
                             if theme then
@@ -1302,7 +1815,7 @@ function ThemeEngine.startWatch(themesPath)
                 for f, _ in pairs(lastFiles) do
                     if not current[f] then
                         changed = true
-                        local name = f:match("^(.+)%.yaml$")
+                        local name = f:match("([^/\\]+)%.yaml$")
                         if name and ThemeEngine.themes[name] then
                             ThemeEngine.themes[name] = nil
                             Log.info("Theme removed:", name)
@@ -1337,9 +1850,10 @@ return ThemeEngine
 local Core = {}
 Core.__index = Core
 
-local Executor = require(script.Parent.executor)
-local Log = require(script.Parent.log)
-local ThemeEngine = require(script.Parent.theme)
+local Executor = TempleExRequire("executor")
+local Log = TempleExRequire("log")
+local ThemeEngine = TempleExRequire("theme")
+local Config = TempleExRequire("config")
 
 Core.modules = {}       -- id -> module definition
 Core.active = {}        -- id -> active state
@@ -1572,10 +2086,10 @@ return Core
     Fly, Speed, InfiniteJump, Noclip, ESP, Fullbright, Hitbox, Freecam, etc.
 ]]
 
-local Core = require(script.Parent.core)
-local Executor = require(script.Parent.executor)
-local Log = require(script.Parent.log)
-local ThemeEngine = require(script.Parent.theme)
+local Core = TempleExRequire("core")
+local Executor = TempleExRequire("executor")
+local Log = TempleExRequire("log")
+local ThemeEngine = TempleExRequire("theme")
 
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -2383,11 +2897,11 @@ return Core
 local Shell = {}
 Shell.__index = Shell
 
-local Executor = require(script.Parent.executor)
-local ThemeEngine = require(script.Parent.theme)
-local Core = require(script.Parent.core)
-local Config = require(script.Parent.config)
-local Log = require(script.Parent.log)
+local Executor = TempleExRequire("executor")
+local ThemeEngine = TempleExRequire("theme")
+local Core = TempleExRequire("core")
+local Config = TempleExRequire("config")
+local Log = TempleExRequire("log")
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -2424,6 +2938,11 @@ Shell.switcherGui = nil
 local tokens = {}
 
 local function updateTokens()
+    local raw = ThemeEngine.currentRawTheme
+    local geo = raw and raw.geometry or {}
+    local rad = geo.radius or {}
+    local pad = geo.padding or {}
+    local fx = raw and raw.effects or {}
     tokens = {
         bg = ThemeEngine.getToken("window.bg"),
         border = ThemeEngine.getToken("window.border"),
@@ -2445,11 +2964,11 @@ local function updateTokens()
         elementBg = ThemeEngine.getToken("element.bg"),
         elementBorder = ThemeEngine.getToken("element.border"),
         elementFocus = ThemeEngine.getToken("element.focus"),
-        radius = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.radius.window or 12,
-        padding = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.padding.window or 14,
-        shadow = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.shadow or {blur=12, transparency=0.5, color=Color3.new(0,0,0)},
-        animSpeed = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.effects.animation_speed or 1.0,
-        animations = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.effects.animations or true,
+        radius = rad.window or 12,
+        padding = pad.window or 14,
+        shadow = geo.shadow or {blur = 12, transparency = 0.5, color = Color3.new(0, 0, 0)},
+        animSpeed = fx.animation_speed or 1.0,
+        animations = fx.animations == nil and true or fx.animations,
     }
 end
 
@@ -2485,24 +3004,24 @@ local function tween(obj, props, duration, easingStyle, easingDirection)
 end
 
 local function roundCorners(obj, radius)
-    local corner = obj:FindFirstChild("UICorner") or Instance.new("UICorner")
+    local corner = (obj and obj:FindFirstChild("UICorner")) or Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius or tokens.radius)
-    corner.Parent = obj
+    if obj then corner.Parent = obj end
     return corner
 end
 
 local function addStroke(obj, color, thickness)
-    local stroke = obj:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+    local stroke = (obj and obj:FindFirstChild("UIStroke")) or Instance.new("UIStroke")
     stroke.Color = color or tokens.border
     stroke.Thickness = thickness or 1
     stroke.Transparency = 0.5
-    stroke.Parent = obj
+    if obj then stroke.Parent = obj end
     return stroke
 end
 
 local function addShadow(obj)
     if not tokens.shadow then return end
-    local shadow = obj:FindFirstChild("UIShadow") or Instance.new("ImageLabel")
+    local shadow = (obj and obj:FindFirstChild("UIShadow")) or Instance.new("ImageLabel")
     shadow.Name = "UIShadow"
     shadow.BackgroundTransparency = 1
     shadow.Image = "rbxassetid://1316045217" -- soft shadow
@@ -2512,8 +3031,10 @@ local function addShadow(obj)
     shadow.SliceCenter = Rect.new(10, 10, 118, 118)
     shadow.Size = UDim2.new(1, 20, 1, 20)
     shadow.Position = UDim2.new(0, -10, 0, -10)
-    shadow.ZIndex = obj.ZIndex - 1
-    shadow.Parent = obj
+    if obj then
+        shadow.ZIndex = obj.ZIndex - 1
+        shadow.Parent = obj
+    end
     return shadow
 end
 
@@ -2521,6 +3042,7 @@ end
 -- SCREEN GUI SETUP
 -- ============================================================
 function Shell.init()
+    if Shell.screenGui then return Shell.screenGui end
     local config = Config.data
     local shellConfig = config and config.shell or {}
 
@@ -2829,13 +3351,13 @@ function Shell.saveWindowPositions()
             minimized = Shell.minimizedWindows[id] or false
         }
     end
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     pcall(Executor.fs_write, "cache/configs/windows.json", game:GetService("HttpService"):JSONEncode(data))
 end
 
 function Shell.restoreWindowPositions()
-    local Executor = require(script.Parent.executor)
-    local ok, content = pcall(Executor.fs_read, "cache/configs/windows.json")
+    local Executor = TempleExRequire("executor")
+    local ok, content = Executor.fs_read("cache/configs/windows.json")
     if not ok or not content then return end
 
     local ok2, data = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)
@@ -3795,11 +4317,11 @@ return Shell
 local Autoload = {}
 Autoload.__index = Autoload
 
-local Executor = require(script.Parent.executor)
-local Config = require(script.Parent.config)
-local Core = require(script.Parent.core)
-local Log = require(script.Parent.log)
-local Shell = require(script.Parent.shell)
+local Executor = TempleExRequire("executor")
+local Config = TempleExRequire("config")
+local Core = TempleExRequire("core")
+local Log = TempleExRequire("log")
+local Shell = TempleExRequire("shell")
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -3864,9 +4386,9 @@ function Autoload.loadScript(pluginDef)
     local function executeScript(content, name)
         -- Create isolated environment
         local env = setmetatable({
-            Temple = require(script.Parent.api),
-            TempleApi = require(script.Parent.api),
-            TempleEx = require(script.Parent.api),
+            Temple = TempleExRequire("api"),
+            TempleApi = TempleExRequire("api"),
+            TempleEx = TempleExRequire("api"),
             _G = _G,
             game = game,
             workspace = workspace,
@@ -3970,7 +4492,7 @@ function Autoload.loadScript(pluginDef)
             fullPath = workspacePath .. "/" .. fullPath
         end
 
-        local ok, content = pcall(Executor.fs_read, fullPath)
+        local ok, content = Executor.fs_read(fullPath)
         if not ok or not content then
             return false, "Failed to read script file: " .. fullPath
         end
@@ -4028,14 +4550,14 @@ function Autoload.saveSession()
         })
     end
 
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     pcall(Executor.fs_write, "cache/configs/session.json", HttpService:JSONEncode(session))
     Log.debug("Session saved:", #session.scripts, "scripts")
 end
 
 function Autoload.restoreSession()
-    local Executor = require(script.Parent.executor)
-    local ok, content = pcall(Executor.fs_read, "cache/configs/session.json")
+    local Executor = TempleExRequire("executor")
+    local ok, content = Executor.fs_read("cache/configs/session.json")
     if not ok or not content then return end
 
     local ok2, session = pcall(function() return HttpService:JSONDecode(content) end)
@@ -4059,7 +4581,7 @@ end
 function Autoload.setupRejoinRelaunch()
     local reloadCode = [[
         -- TempleEx Auto-Reload on Rejoin
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()
     ]]
 
     local ok, err = Executor.queue_on_teleport(reloadCode)
@@ -4078,7 +4600,7 @@ function Autoload.setupRespawnFallback()
         task.wait(1)
         -- Check if TempleEx is already loaded
         if not _G.TempleExLoaded then
-            local reloadCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()'
+            local reloadCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()'
             pcall(function() loadstring(reloadCode)() end)
         end
     end)
@@ -4092,7 +4614,7 @@ function Autoload.startFolderWatch()
     local knownFiles = {}
 
     local function scan()
-        local ok, files = pcall(Executor.fs_list, pluginsPath)
+        local ok, files = Executor.fs_list(pluginsPath)
         if not ok or not files then return end
 
         local current = {}
@@ -4187,11 +4709,11 @@ return Autoload
 local Git = {}
 Git.__index = Git
 
-local Executor = require(script.Parent.executor)
-local Config = require(script.Parent.config)
-local ThemeEngine = require(script.Parent.theme)
-local Log = require(script.Parent.log)
-local Autoload = require(script.Parent.autoload)
+local Executor = TempleExRequire("executor")
+local Config = TempleExRequire("config")
+local ThemeEngine = TempleExRequire("theme")
+local Log = TempleExRequire("log")
+local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
@@ -4204,10 +4726,10 @@ Git.updateAvailable = false
 -- ============================================================
 local function githubApiRequest(endpoint)
     local mirrors = Config.get("git.mirrors") or {"https://raw.githubusercontent.com"}
-    local baseUrl = mirrors[1] .. "/TempleEx/TempleEx/main" -- default to raw
+    local baseUrl = mirrors[1] .. "/FoarteBine/TempleEx/main" -- default to raw
 
     -- Try GitHub API for releases
-    local apiUrl = "https://api.github.com/repos/TempleEx/TempleEx" .. endpoint
+    local apiUrl = "https://api.github.com/repos/FoarteBine/TempleEx" .. endpoint
     local res = Executor.http(apiUrl, {
         Headers = {
             ["Accept"] = "application/vnd.github.v3+json",
@@ -4231,7 +4753,7 @@ end
 
 local function downloadFromMirrors(path)
     local mirrors = Config.get("git.mirrors") or {"https://raw.githubusercontent.com"}
-    local repo = Config.get("git.repo") or "TempleEx/TempleEx"
+    local repo = Config.get("git.repo") or "FoarteBine/TempleEx"
     local channel = Config.get("git.channel") or "stable"
     local branch = channel == "canary" and "dev" or "main"
 
@@ -4256,7 +4778,7 @@ end
 -- ============================================================
 function Git.checkForUpdates()
     local channel = Config.get("git.channel") or "stable"
-    local repo = Config.get("git.repo") or "TempleEx/TempleEx"
+    local repo = Config.get("git.repo") or "FoarteBine/TempleEx"
 
     Log.info("Checking for updates on channel:", channel)
 
@@ -4330,13 +4852,13 @@ function Git.applyUpdate(buildContent)
     local workspacePath = Config.get("paths.workspace") or "."
 
     -- Backup current
-    local ok, current = pcall(Executor.fs_read, workspacePath .. "/TempleEx.lua")
+    local ok, current = Executor.fs_read(workspacePath .. "/TempleEx.lua")
     if ok and current then
         pcall(Executor.fs_write, workspacePath .. "/cache/TempleEx.prev.lua", current)
     end
 
     -- Write new build
-    local ok, err = pcall(Executor.fs_write, workspacePath .. "/TempleEx.lua", buildContent)
+    local ok, err = Executor.fs_write(workspacePath .. "/TempleEx.lua", buildContent)
     if not ok then
         return false, "Failed to write update: " .. err
     end
@@ -4354,7 +4876,7 @@ end
 -- ============================================================
 function Git.rollback()
     local workspacePath = Config.get("paths.workspace") or "."
-    local ok, backup = pcall(Executor.fs_read, workspacePath .. "/cache/TempleEx.prev.lua")
+    local ok, backup = Executor.fs_read(workspacePath .. "/cache/TempleEx.prev.lua")
     if ok and backup then
         pcall(Executor.fs_write, workspacePath .. "/TempleEx.lua", backup)
         Log.info("Rolled back to previous version")
@@ -4367,7 +4889,7 @@ end
 -- PIN VERSION
 -- ============================================================
 function Git.pinVersion(versionTag)
-    local url = "https://github.com/TempleEx/TempleEx/releases/download/" .. versionTag .. "/TempleEx-full.lua"
+    local url = "https://github.com/FoarteBine/TempleEx/releases/download/" .. versionTag .. "/TempleEx-full.lua"
     local res = Executor.http(url)
     if res.Success then
         return Git.applyUpdate(res.Body)
@@ -4376,7 +4898,7 @@ function Git.pinVersion(versionTag)
     -- Try mirrors
     local mirrors = Config.get("git.mirrors") or {}
     for _, mirror in ipairs(mirrors) do
-        local murl = mirror .. "/TempleEx/TempleEx/" .. versionTag .. "/TempleEx-full.lua"
+        local murl = mirror .. "/FoarteBine/TempleEx/" .. versionTag .. "/TempleEx-full.lua"
         local mres = Executor.http(murl)
         if mres.Success then
             return Git.applyUpdate(mres.Body)
@@ -4409,7 +4931,7 @@ function Git.fetchRegistry(registryName)
 
         local res = Executor.http(url)
         if res.Success then
-            local YAML = require(script.Parent.yaml)
+            local YAML = TempleExRequire("yaml")
             local data, errors = YAML.parse(res.Body)
             if data then
                 return data
@@ -4489,7 +5011,7 @@ function Git.pullFromRegistry(registryName, itemName)
 end
 
 -- ============================================================
-- THEME PULL
+-- THEME PULL
 -- ============================================================
 function Git.pullTheme(repoOrUrl)
     -- If it's a full URL
@@ -4547,10 +5069,10 @@ return Git
 local AI = {}
 AI.__index = AI
 
-local Executor = require(script.Parent.executor)
-local Config = require(script.Parent.config)
-local ThemeEngine = require(script.Parent.theme)
-local Log = require(script.Parent.log)
+local Executor = TempleExRequire("executor")
+local Config = TempleExRequire("config")
+local ThemeEngine = TempleExRequire("theme")
+local Log = TempleExRequire("log")
 
 local HttpService = game:GetService("HttpService")
 
@@ -4562,11 +5084,11 @@ AI.requestQueue = {}
 -- LOAD AGENT PROMPTS
 -- ============================================================
 local function loadAgentPrompt(name)
-    local ok, content = pcall(Executor.fs_read, "agents/" .. name .. ".md")
+    local ok, content = Executor.fs_read("agents/" .. name .. ".md")
     if ok and content then return content end
     -- Fallback: try from script directory
-    local Executor = require(script.Parent.executor)
-    local ok2, content2 = pcall(Executor.fs_read, "src/agents/" .. name .. ".md")
+    local Executor = TempleExRequire("executor")
+    local ok2, content2 = Executor.fs_read("src/agents/" .. name .. ".md")
     if ok2 and content2 then return content2 end
     return nil
 end
@@ -4697,7 +5219,7 @@ Output ONLY the YAML. No markdown, no explanation.
     local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
 
     -- Validate via ThemeEngine
-    local YAML = require(script.Parent.yaml)
+    local YAML = TempleExRequire("yaml")
     local theme, errors = YAML.parse(yamlContent)
     if errors and #errors > 0 then
         return nil, "YAML parse errors: " .. table.concat(errors, "; ")
@@ -4731,7 +5253,7 @@ Output ONLY the YAML. No markdown, no explanation.
 end
 
 -- ============================================================
-- THEME REFINER
+-- THEME REFINER
 -- ============================================================
 function AI.refineTheme(currentThemeYaml, feedback, options)
     options = options or {}
@@ -4777,7 +5299,7 @@ Return the complete modified theme YAML only.
     local content = data.choices[1].message.content
     local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
 
-    local YAML = require(script.Parent.yaml)
+    local YAML = TempleExRequire("yaml")
     local theme, errors = YAML.parse(yamlContent)
     if errors and #errors > 0 then
         return nil, "YAML parse errors: " .. table.concat(errors, "; ")
@@ -4793,7 +5315,7 @@ Return the complete modified theme YAML only.
 end
 
 -- ============================================================
-- THEME NAMER
+-- THEME NAMER
 -- ============================================================
 function AI.nameTheme(prompt)
     local key = cacheKey(prompt, "namer", "theme-namer")
@@ -4819,7 +5341,7 @@ function AI.nameTheme(prompt)
 end
 
 -- ============================================================
-- CONTRAST VALIDATION
+-- CONTRAST VALIDATION
 -- ============================================================
 function AI.validateContrast(theme)
     if not theme.palette or not theme.tokens then
@@ -4880,14 +5402,14 @@ function AI.validateContrast(theme)
 end
 
 -- ============================================================
-- CONFIG AUDIT
+-- CONFIG AUDIT
 -- ============================================================
 function AI.auditConfig(configYaml)
     local key = cacheKey(configYaml, "audit", "config-audit")
     if AI.cache[key] then return AI.cache[key] end
 
     -- For now, use local validation (config-audit agent would be LLM)
-    local YAML = require(script.Parent.yaml)
+    local YAML = TempleExRequire("yaml")
     local config, errors = YAML.parse(configYaml)
 
     local result = {errors = {}, warnings = {}, info = {}}
@@ -4901,8 +5423,8 @@ function AI.auditConfig(configYaml)
     if config then
         -- Check theme existence
         local themesPath = Config.get("paths.themes") or "themes"
-        local Executor = require(script.Parent.executor)
-        local ok, files = pcall(Executor.fs_list, themesPath)
+        local Executor = TempleExRequire("executor")
+        local ok, files = Executor.fs_list(themesPath)
         local themeFiles = {}
         if ok then for _, f in ipairs(files) do themeFiles[f:gsub("%.yaml$","")] = true end end
 
@@ -4934,7 +5456,7 @@ function AI.auditConfig(configYaml)
 end
 
 -- ============================================================
-- QUEUE MANAGEMENT
+-- QUEUE MANAGEMENT
 -- ============================================================
 function AI.queueRequest(request)
     table.insert(AI.requestQueue, request)
@@ -4948,7 +5470,7 @@ function AI.processQueue()
 end
 
 -- ============================================================
-- STATUS
+-- STATUS
 -- ============================================================
 function AI.getStatus()
     return {
@@ -4969,18 +5491,46 @@ return AI
 local TempleApi = {}
 TempleApi.__index = TempleApi
 
-local Executor = require(script.Parent.executor)
-local ThemeEngine = require(script.Parent.theme)
-local Core = require(script.Parent.core)
-local Shell = require(script.Parent.shell)
-local Config = require(script.Parent.config)
-local Log = require(script.Parent.log)
+local Executor = TempleExRequire("executor")
+local ThemeEngine = TempleExRequire("theme")
+local Core = TempleExRequire("core")
+local Shell = TempleExRequire("shell")
+local Config = TempleExRequire("config")
+local Log = TempleExRequire("log")
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Shared tween helper (must be defined before use)
+local function tween(obj, props, duration)
+    if not obj then return end
+    local t = TweenService:Create(obj, TweenInfo.new(duration or 0.15, Enum.EasingStyle.Quad), props)
+    t:Play()
+    return t
+end
+
+-- Safe geometry accessors (theme sections may be missing)
+local function themeRadius(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.radius and t.geometry.radius.window) or fallback
+end
+local function themePadding(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.padding and t.geometry.padding.window) or fallback
+end
+local function themeElemRadius(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.radius and t.geometry.radius.element) or fallback
+end
+local function themeElemPadding(fallback)
+    local t = ThemeEngine.currentRawTheme
+    return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
+end
 
 TempleApi.version = {major = 1, minor = 0, patch = 0}
 TempleApi._windows = {}
@@ -4998,12 +5548,22 @@ TempleApi._scriptContext = nil
 function TempleApi.init()
     if TempleApi._initialized then return TempleApi end
 
-    -- Initialize subsystems
-    Config.init(Executor.fs_read(".") and "." or "workspace") -- will be overridden by bootloader
-    ThemeEngine.loadAllThemes(Config.get("paths.themes") or "themes")
-    local activeTheme = Config.get("theme.active") or "midnight-temple"
-    ThemeEngine.applyTheme(activeTheme)
-    Shell.init()
+    -- Initialize subsystems (idempotent — main init may have done this already)
+    local Config = TempleExRequire("config")
+    if not Config.data then
+        Config.init("")  -- executor workspace root
+    end
+    local ThemeEngine = TempleExRequire("theme")
+    if not next(ThemeEngine.themes) then
+        ThemeEngine.loadAllThemes(Config.get("paths.themes") or "themes")
+    end
+    if not ThemeEngine.currentTheme then
+        ThemeEngine.applyTheme(Config.get("theme.active") or "midnight-temple")
+    end
+    local Shell = TempleExRequire("shell")
+    if not Shell.screenGui then
+        Shell.init()
+    end
 
     -- Load core state
     Core.loadState(Config.data)
@@ -5024,6 +5584,8 @@ end
 -- ============================================================
 -- UI: WINDOW MANAGEMENT
 -- ============================================================
+local createSection  -- forward declaration (defined after widgets section)
+
 function TempleApi.Window(options)
     options = options or {}
     TempleApi._windowIdCounter = TempleApi._windowIdCounter + 1
@@ -5053,9 +5615,8 @@ function TempleApi.Window(options)
 
     -- Create GUI
     local size = options.size or Config.get("behavior.window_default.size") or {520, 380}
-    local theme = ThemeEngine.currentRawTheme
-    local radius = theme and theme.geometry.radius.window or 12
-    local padding = theme and theme.geometry.padding.window or 14
+    local radius = themeRadius(12)
+    local padding = themePadding(14)
 
     window.gui = Instance.new("Frame")
     window.gui.Name = "TempleWindow_" .. id
@@ -5176,7 +5737,8 @@ function TempleApi.Window(options)
     window.container.Parent = window.gui
 
     -- Sidebar
-    local sidebarWidth = theme and theme.layout.sidebar == "left" and 160 or 0
+    local rawTheme = ThemeEngine.currentRawTheme
+    local sidebarWidth = (rawTheme and rawTheme.layout and rawTheme.layout.sidebar == "left") and 160 or 0
     window.sidebar = Instance.new("Frame")
     window.sidebar.Name = "Sidebar"
     window.sidebar.Size = UDim2.new(0, sidebarWidth, 1, 0)
@@ -5235,6 +5797,7 @@ function TempleApi.Window(options)
             contentFrame = nil,
             window = self
         }
+        tab.Section = function(self2, secTitle) return createSection(tab, secTitle) end
 
         -- Tab button in sidebar
         tab.button = Instance.new("TextButton")
@@ -5382,9 +5945,8 @@ end
 local function createWidget(tab, widgetType, options)
     options = options or {}
     local parent = tab.contentFrame
-    local theme = ThemeEngine.currentRawTheme
-    local elemRadius = theme and theme.geometry.radius.element or 8
-    local elemPadding = theme and theme.geometry.padding.element or 8
+    local elemRadius = themeElemRadius(8)
+    local elemPadding = themeElemPadding(8)
 
     local frame = Instance.new("Frame")
     frame.Name = widgetType .. "_" .. (options.flag or HttpService:GenerateGUID(false):sub(1,8))
@@ -5450,7 +6012,7 @@ local function createWidget(tab, widgetType, options)
     return frame
 end
 
-function TempleApi.Tab:Section(title)
+createSection = function(self, title)
     local section = {
         title = title,
         tab = self,
@@ -6204,6 +6766,8 @@ end
 -- ============================================================
 -- THEME API
 -- ============================================================
+TempleApi.Theme = {}
+
 function TempleApi.Theme:get(role)
     return ThemeEngine.getToken(role)
 end
@@ -6299,6 +6863,8 @@ end
 -- ============================================================
 -- CONFIG PERSISTENCE FOR SCRIPTS
 -- ============================================================
+TempleApi.Config = {}
+
 function TempleApi.Config:save(scriptId)
     local data = {}
     -- Collect flags for this script (could namespace by scriptId)
@@ -6307,15 +6873,15 @@ function TempleApi.Config:save(scriptId)
             data[k:sub(#scriptId + 2)] = v
         end
     end
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     local path = "cache/configs/" .. scriptId .. ".json"
     pcall(Executor.fs_write, path, HttpService:JSONEncode(data))
 end
 
 function TempleApi.Config:load(scriptId)
-    local Executor = require(script.Parent.executor)
+    local Executor = TempleExRequire("executor")
     local path = "cache/configs/" .. scriptId .. ".json"
-    local ok, content = pcall(Executor.fs_read, path)
+    local ok, content = Executor.fs_read(path)
     if ok and content then
         local ok2, data = pcall(function() return HttpService:JSONDecode(content) end)
         if ok2 and data then
@@ -6331,6 +6897,8 @@ end
 -- ============================================================
 -- WEBHOOK
 -- ============================================================
+TempleApi.Webhook = {}
+
 function TempleApi.Webhook:send(url, payload)
     local body = HttpService:JSONEncode(payload)
     local res = Executor.http(url, {
@@ -6365,6 +6933,8 @@ end
 -- ============================================================
 -- SCRIPT CONTEXT
 -- ============================================================
+TempleApi.Script = {}
+
 function TempleApi.Script:id()
     return TempleApi._scriptContext or "unknown"
 end
@@ -6403,17 +6973,6 @@ function TempleApi.IYCompat()
     }
 end
 
--- ============================================================
--- HELPER: tween
--- ============================================================
-local function tween(obj, props, duration)
-    if not obj then return end
-    local TweenService = game:GetService("TweenService")
-    local t = TweenService:Create(obj, TweenInfo.new(duration or 0.15, Enum.EasingStyle.Quad), props)
-    t:Play()
-    return t
-end
-
 return TempleApi
 
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
@@ -6423,17 +6982,23 @@ return TempleApi
 local TempleEx = {}
 TempleEx.version = {major = 1, minor = 0, patch = 0}
 
--- Initialize subsystems in order
 local function init()
+    -- Materialize embedded themes/agents into workspace (offline-ready)
+    local Assets = TempleExRequire("assets")
+    pcall(Assets.materialize, "")
+
     -- Config first (needs workspace path)
     local Config = TempleExRequire("config")
-    Config.init(".")
+    Config.init("")
 
     -- Theme engine
     local ThemeEngine = TempleExRequire("theme")
     ThemeEngine.loadAllThemes(Config.get("paths.themes") or "themes")
     local activeTheme = Config.get("theme.active") or "midnight-temple"
     ThemeEngine.applyTheme(activeTheme)
+    if Config.get("theme.auto_reload") then
+        ThemeEngine.startWatch(Config.get("paths.themes") or "themes")
+    end
 
     -- Core functions
     local Core = TempleExRequire("core")
@@ -6459,7 +7024,6 @@ local function init()
     local TempleApi = TempleExRequire("api")
     TempleApi.init()
 
-    -- Expose subsystems on TempleEx
     TempleEx.Config = Config
     TempleEx.ThemeEngine = ThemeEngine
     TempleEx.Core = Core
@@ -6468,8 +7032,8 @@ local function init()
     TempleEx.Git = Git
     TempleEx.AI = AI
     TempleEx.Api = TempleApi
+    TempleEx.Assets = Assets
 
-    -- Global access for scripts
     _G.TempleEx = TempleEx
     _G.TempleApi = TempleApi
     _G.Temple = TempleApi

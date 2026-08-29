@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx Git Layer
     Handles self-update, hub registries, theme/script pulling from git
 ]]
@@ -23,10 +23,10 @@ Git.updateAvailable = false
 -- ============================================================
 local function githubApiRequest(endpoint)
     local mirrors = Config.get("git.mirrors") or {"https://raw.githubusercontent.com"}
-    local baseUrl = mirrors[1] .. "/TempleEx/TempleEx/main" -- default to raw
+    local baseUrl = mirrors[1] .. "/FoarteBine/TempleEx/main" -- default to raw
 
     -- Try GitHub API for releases
-    local apiUrl = "https://api.github.com/repos/TempleEx/TempleEx" .. endpoint
+    local apiUrl = "https://api.github.com/repos/FoarteBine/TempleEx" .. endpoint
     local res = Executor.http(apiUrl, {
         Headers = {
             ["Accept"] = "application/vnd.github.v3+json",
@@ -50,7 +50,7 @@ end
 
 local function downloadFromMirrors(path)
     local mirrors = Config.get("git.mirrors") or {"https://raw.githubusercontent.com"}
-    local repo = Config.get("git.repo") or "TempleEx/TempleEx"
+    local repo = Config.get("git.repo") or "FoarteBine/TempleEx"
     local channel = Config.get("git.channel") or "stable"
     local branch = channel == "canary" and "dev" or "main"
 
@@ -75,7 +75,7 @@ end
 -- ============================================================
 function Git.checkForUpdates()
     local channel = Config.get("git.channel") or "stable"
-    local repo = Config.get("git.repo") or "TempleEx/TempleEx"
+    local repo = Config.get("git.repo") or "FoarteBine/TempleEx"
 
     Log.info("Checking for updates on channel:", channel)
 
@@ -149,13 +149,13 @@ function Git.applyUpdate(buildContent)
     local workspacePath = Config.get("paths.workspace") or "."
 
     -- Backup current
-    local ok, current = pcall(Executor.fs_read, workspacePath .. "/TempleEx.lua")
+    local ok, current = Executor.fs_read(workspacePath .. "/TempleEx.lua")
     if ok and current then
         pcall(Executor.fs_write, workspacePath .. "/cache/TempleEx.prev.lua", current)
     end
 
     -- Write new build
-    local ok, err = pcall(Executor.fs_write, workspacePath .. "/TempleEx.lua", buildContent)
+    local ok, err = Executor.fs_write(workspacePath .. "/TempleEx.lua", buildContent)
     if not ok then
         return false, "Failed to write update: " .. err
     end
@@ -173,7 +173,7 @@ end
 -- ============================================================
 function Git.rollback()
     local workspacePath = Config.get("paths.workspace") or "."
-    local ok, backup = pcall(Executor.fs_read, workspacePath .. "/cache/TempleEx.prev.lua")
+    local ok, backup = Executor.fs_read(workspacePath .. "/cache/TempleEx.prev.lua")
     if ok and backup then
         pcall(Executor.fs_write, workspacePath .. "/TempleEx.lua", backup)
         Log.info("Rolled back to previous version")
@@ -186,7 +186,7 @@ end
 -- PIN VERSION
 -- ============================================================
 function Git.pinVersion(versionTag)
-    local url = "https://github.com/TempleEx/TempleEx/releases/download/" .. versionTag .. "/TempleEx-full.lua"
+    local url = "https://github.com/FoarteBine/TempleEx/releases/download/" .. versionTag .. "/TempleEx-full.lua"
     local res = Executor.http(url)
     if res.Success then
         return Git.applyUpdate(res.Body)
@@ -195,7 +195,7 @@ function Git.pinVersion(versionTag)
     -- Try mirrors
     local mirrors = Config.get("git.mirrors") or {}
     for _, mirror in ipairs(mirrors) do
-        local murl = mirror .. "/TempleEx/TempleEx/" .. versionTag .. "/TempleEx-full.lua"
+        local murl = mirror .. "/FoarteBine/TempleEx/" .. versionTag .. "/TempleEx-full.lua"
         local mres = Executor.http(murl)
         if mres.Success then
             return Git.applyUpdate(mres.Body)
@@ -308,7 +308,7 @@ function Git.pullFromRegistry(registryName, itemName)
 end
 
 -- ============================================================
-- THEME PULL
+-- THEME PULL
 -- ============================================================
 function Git.pullTheme(repoOrUrl)
     -- If it's a full URL

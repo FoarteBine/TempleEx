@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx Theme Engine
     Handles theme loading, token resolution, hot-swap, and validation
 ]]
@@ -103,7 +103,7 @@ end
 -- Load a single theme file
 function ThemeEngine.loadTheme(name, themesPath)
     local path = themesPath .. "/" .. name .. ".yaml"
-    local ok, content = pcall(Executor.fs_read, path)
+    local ok, content = Executor.fs_read(path)
     if not ok or not content then
         return nil, "Failed to read theme file: " .. path
     end
@@ -128,10 +128,12 @@ function ThemeEngine.loadTheme(name, themesPath)
             end
             baseTheme = base
         end
-        theme = ThemeEngine.mergeTheme(baseTheme.raw, theme)
+        theme = ThemeEngine.mergeTheme(baseTheme, theme)
     end
 
     -- Validate required tokens
+    theme.tokens = theme.tokens or {}
+    theme.palette = theme.palette or {}
     local missingTokens = {}
     for _, token in ipairs(REQUIRED_TOKENS) do
         if not theme.tokens[token] then
@@ -153,21 +155,23 @@ function ThemeEngine.loadTheme(name, themesPath)
         return nil, "Theme missing palette colors: " .. table.concat(missingPalette, ", ")
     end
 
-    theme.name = name
+    theme.slug = name
+    theme.displayName = theme.name or name
     return theme
 end
 
 -- Load all themes from directory
 function ThemeEngine.loadAllThemes(themesPath)
     ThemeEngine.themes = {}
-    local ok, files = pcall(Executor.fs_list, themesPath)
+    local ok, files = Executor.fs_list(themesPath)
     if not ok or not files then
         Log.warn("Could not list themes directory:", themesPath)
         return
     end
 
     for _, file in ipairs(files) do
-        local name = file:match("^(.+)%.yaml$")
+        -- Extract basename without path and extension (handles / and \ separators)
+        local name = file:match("([^/\\]+)%.yaml$")
         if name then
             local theme, err = ThemeEngine.loadTheme(name, themesPath)
             if theme then
@@ -295,7 +299,7 @@ function ThemeEngine.startWatch(themesPath)
         local lastFiles = {}
         while true do
             task.wait(2)
-            local ok, files = pcall(Executor.fs_list, themesPath)
+            local ok, files = Executor.fs_list(themesPath)
             if ok and files then
                 local current = {}
                 for _, f in ipairs(files) do
@@ -306,7 +310,7 @@ function ThemeEngine.startWatch(themesPath)
                 for f, _ in pairs(current) do
                     if not lastFiles[f] then
                         changed = true
-                        local name = f:match("^(.+)%.yaml$")
+                        local name = f:match("([^/\\]+)%.yaml$")
                         if name and not ThemeEngine.themes[name] then
                             local theme, err = ThemeEngine.loadTheme(name, themesPath)
                             if theme then
@@ -319,7 +323,7 @@ function ThemeEngine.startWatch(themesPath)
                 for f, _ in pairs(lastFiles) do
                     if not current[f] then
                         changed = true
-                        local name = f:match("^(.+)%.yaml$")
+                        local name = f:match("([^/\\]+)%.yaml$")
                         if name and ThemeEngine.themes[name] then
                             ThemeEngine.themes[name] = nil
                             Log.info("Theme removed:", name)

@@ -1,15 +1,15 @@
 ﻿--[[
     TempleEx - Main Entry Point (Bootloader + Single-File Build Target)
     Version: 1.0.0
-    Load via: loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()
+    Load via: loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()
 ]]
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- BOOTLOADER SECTION (runs first, downloads full build if needed)
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local BOOTLOADER_VERSION = "1.0.0"
-local REPO = "TempleEx/TempleEx"
+local REPO = "FoarteBine/TempleEx"
 local BRANCH = "main"
 local MIRRORS = {
     "https://raw.githubusercontent.com",
@@ -25,9 +25,9 @@ if _G.TempleExLoaded and _G.TempleEx then
     return _G.TempleEx
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- EXECUTOR DETECTION (minimal, inline)
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function detectExecutor()
     local name = "unknown"
@@ -83,9 +83,9 @@ end
 
 local EXECUTOR_INFO = detectExecutor()
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- MINIMAL HTTP + FS (for bootloader only)
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function httpRequest(url, options)
     options = options or {}
@@ -137,24 +137,29 @@ local function getHUI()
     return game:GetService("CoreGui")
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- CACHE MANAGEMENT
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function getWorkspacePath()
-    -- Try to detect workspace folder
+    -- Executor file functions are relative to the workspace folder root.
+    -- Verify write access; empty string = root (readfile("temple.yaml") style).
     local testPath = "TempleEx_test_write.tmp"
     if pcall(fsWrite, testPath, "test") then
         pcall(fsWrite, testPath, "") -- cleanup
-        return "."
+        return ""
     end
-    return "workspace"
+    return ""
 end
 
 local WORKSPACE_PATH = getWorkspacePath()
-local CACHE_PATH = WORKSPACE_PATH .. "/TempleEx.lua"
-local VERSION_CACHE_PATH = WORKSPACE_PATH .. "/cache/TempleEx.version"
-local PREV_BUILD_PATH = WORKSPACE_PATH .. "/cache/TempleEx.prev.lua"
+local function wsJoin(sub)
+    if WORKSPACE_PATH == "" then return sub end
+    return WORKSPACE_PATH .. "/" .. sub
+end
+local CACHE_PATH = wsJoin("TempleEx.lua")
+local VERSION_CACHE_PATH = wsJoin("cache/TempleEx.version")
+local PREV_BUILD_PATH = wsJoin("cache/TempleEx.prev.lua")
 
 local function readVersionCache()
     local ok, content = fsRead(VERSION_CACHE_PATH)
@@ -163,13 +168,13 @@ local function readVersionCache()
 end
 
 local function writeVersionCache(version)
-    pcall(fsMkdir, WORKSPACE_PATH .. "/cache")
+    pcall(fsMkdir, wsJoin("cache"))
     pcall(fsWrite, VERSION_CACHE_PATH, version)
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- DOWNLOAD FULL BUILD
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function downloadFullBuild()
     print("[TempleEx] Downloading full build...")
@@ -213,9 +218,9 @@ local function downloadFullBuild()
     return nil
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- MAIN BOOTSTRAP
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function bootstrap()
     -- Try to load from cache first
@@ -266,9 +271,9 @@ local function bootstrap()
     return buildContent
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- EXECUTE FULL BUILD
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local fullBuild = bootstrap()
 if not fullBuild then
@@ -286,14 +291,16 @@ if not ok then
     error("[TempleEx] Build execution failed: " .. tostring(TempleEx))
 end
 
--- ═══════════════════════════════════════════════════════════════
-- GLOBAL EXPORTS
--- ═══════════════════════════════════════════════════════════════
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+-- GLOBAL EXPORTS
+-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 _G.TempleExLoaded = true
 _G.TempleEx = TempleEx
-_G.TempleApi = TempleEx
-_G.Temple = TempleEx
+-- The full build already set _G.TempleApi / _G.Temple to the real API;
+-- re-point explicitly to TempleEx.Api so scripts can call TempleApi.Window(...) etc.
+_G.TempleApi = TempleEx.Api or _G.TempleApi
+_G.Temple = TempleEx.Api or _G.Temple
 
 -- Provide toggle function
 _G.TempleEx.ToggleGUI = function()
@@ -307,3 +314,8 @@ print("[TempleEx] Executor:", EXECUTOR_INFO.name)
 print("[TempleEx] Press RightCtrl to toggle GUI")
 
 return TempleEx
+
+
+
+
+

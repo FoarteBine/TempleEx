@@ -47,6 +47,11 @@ Shell.switcherGui = nil
 local tokens = {}
 
 local function updateTokens()
+    local raw = ThemeEngine.currentRawTheme
+    local geo = raw and raw.geometry or {}
+    local rad = geo.radius or {}
+    local pad = geo.padding or {}
+    local fx = raw and raw.effects or {}
     tokens = {
         bg = ThemeEngine.getToken("window.bg"),
         border = ThemeEngine.getToken("window.border"),
@@ -68,11 +73,11 @@ local function updateTokens()
         elementBg = ThemeEngine.getToken("element.bg"),
         elementBorder = ThemeEngine.getToken("element.border"),
         elementFocus = ThemeEngine.getToken("element.focus"),
-        radius = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.radius.window or 12,
-        padding = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.padding.window or 14,
-        shadow = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.geometry.shadow or {blur=12, transparency=0.5, color=Color3.new(0,0,0)},
-        animSpeed = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.effects.animation_speed or 1.0,
-        animations = ThemeEngine.currentRawTheme and ThemeEngine.currentRawTheme.effects.animations or true,
+        radius = rad.window or 12,
+        padding = pad.window or 14,
+        shadow = geo.shadow or {blur = 12, transparency = 0.5, color = Color3.new(0, 0, 0)},
+        animSpeed = fx.animation_speed or 1.0,
+        animations = fx.animations == nil and true or fx.animations,
     }
 end
 
@@ -108,24 +113,24 @@ local function tween(obj, props, duration, easingStyle, easingDirection)
 end
 
 local function roundCorners(obj, radius)
-    local corner = obj:FindFirstChild("UICorner") or Instance.new("UICorner")
+    local corner = (obj and obj:FindFirstChild("UICorner")) or Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius or tokens.radius)
-    corner.Parent = obj
+    if obj then corner.Parent = obj end
     return corner
 end
 
 local function addStroke(obj, color, thickness)
-    local stroke = obj:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+    local stroke = (obj and obj:FindFirstChild("UIStroke")) or Instance.new("UIStroke")
     stroke.Color = color or tokens.border
     stroke.Thickness = thickness or 1
     stroke.Transparency = 0.5
-    stroke.Parent = obj
+    if obj then stroke.Parent = obj end
     return stroke
 end
 
 local function addShadow(obj)
     if not tokens.shadow then return end
-    local shadow = obj:FindFirstChild("UIShadow") or Instance.new("ImageLabel")
+    local shadow = (obj and obj:FindFirstChild("UIShadow")) or Instance.new("ImageLabel")
     shadow.Name = "UIShadow"
     shadow.BackgroundTransparency = 1
     shadow.Image = "rbxassetid://1316045217" -- soft shadow
@@ -135,8 +140,10 @@ local function addShadow(obj)
     shadow.SliceCenter = Rect.new(10, 10, 118, 118)
     shadow.Size = UDim2.new(1, 20, 1, 20)
     shadow.Position = UDim2.new(0, -10, 0, -10)
-    shadow.ZIndex = obj.ZIndex - 1
-    shadow.Parent = obj
+    if obj then
+        shadow.ZIndex = obj.ZIndex - 1
+        shadow.Parent = obj
+    end
     return shadow
 end
 
@@ -144,6 +151,7 @@ end
 -- SCREEN GUI SETUP
 -- ============================================================
 function Shell.init()
+    if Shell.screenGui then return Shell.screenGui end
     local config = Config.data
     local shellConfig = config and config.shell or {}
 
@@ -458,7 +466,7 @@ end
 
 function Shell.restoreWindowPositions()
     local Executor = require(script.Parent.executor)
-    local ok, content = pcall(Executor.fs_read, "cache/configs/windows.json")
+    local ok, content = Executor.fs_read("cache/configs/windows.json")
     if not ok or not content then return end
 
     local ok2, data = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)

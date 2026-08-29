@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx AI Agents Bridge
     Theme generation/refinement via LLM
 ]]
@@ -21,11 +21,11 @@ AI.requestQueue = {}
 -- LOAD AGENT PROMPTS
 -- ============================================================
 local function loadAgentPrompt(name)
-    local ok, content = pcall(Executor.fs_read, "agents/" .. name .. ".md")
+    local ok, content = Executor.fs_read("agents/" .. name .. ".md")
     if ok and content then return content end
     -- Fallback: try from script directory
     local Executor = require(script.Parent.executor)
-    local ok2, content2 = pcall(Executor.fs_read, "src/agents/" .. name .. ".md")
+    local ok2, content2 = Executor.fs_read("src/agents/" .. name .. ".md")
     if ok2 and content2 then return content2 end
     return nil
 end
@@ -190,7 +190,7 @@ Output ONLY the YAML. No markdown, no explanation.
 end
 
 -- ============================================================
-- THEME REFINER
+-- THEME REFINER
 -- ============================================================
 function AI.refineTheme(currentThemeYaml, feedback, options)
     options = options or {}
@@ -252,7 +252,7 @@ Return the complete modified theme YAML only.
 end
 
 -- ============================================================
-- THEME NAMER
+-- THEME NAMER
 -- ============================================================
 function AI.nameTheme(prompt)
     local key = cacheKey(prompt, "namer", "theme-namer")
@@ -278,7 +278,7 @@ function AI.nameTheme(prompt)
 end
 
 -- ============================================================
-- CONTRAST VALIDATION
+-- CONTRAST VALIDATION
 -- ============================================================
 function AI.validateContrast(theme)
     if not theme.palette or not theme.tokens then
@@ -339,7 +339,7 @@ function AI.validateContrast(theme)
 end
 
 -- ============================================================
-- CONFIG AUDIT
+-- CONFIG AUDIT
 -- ============================================================
 function AI.auditConfig(configYaml)
     local key = cacheKey(configYaml, "audit", "config-audit")
@@ -361,7 +361,7 @@ function AI.auditConfig(configYaml)
         -- Check theme existence
         local themesPath = Config.get("paths.themes") or "themes"
         local Executor = require(script.Parent.executor)
-        local ok, files = pcall(Executor.fs_list, themesPath)
+        local ok, files = Executor.fs_list(themesPath)
         local themeFiles = {}
         if ok then for _, f in ipairs(files) do themeFiles[f:gsub("%.yaml$","")] = true end end
 
@@ -393,7 +393,7 @@ function AI.auditConfig(configYaml)
 end
 
 -- ============================================================
-- QUEUE MANAGEMENT
+-- QUEUE MANAGEMENT
 -- ============================================================
 function AI.queueRequest(request)
     table.insert(AI.requestQueue, request)
@@ -407,7 +407,7 @@ function AI.processQueue()
 end
 
 -- ============================================================
-- STATUS
+-- STATUS
 -- ============================================================
 function AI.getStatus()
     return {

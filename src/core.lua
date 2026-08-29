@@ -9,6 +9,7 @@ Core.__index = Core
 local Executor = require(script.Parent.executor)
 local Log = require(script.Parent.log)
 local ThemeEngine = require(script.Parent.theme)
+local Config = require(script.Parent.config)
 
 Core.modules = {}       -- id -> module definition
 Core.active = {}        -- id -> active state

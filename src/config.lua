@@ -1,4 +1,4 @@
---[[
+﻿--[[
     TempleEx Config Manager
     Handles temple.yaml loading, validation, saving, and hot-reload
 ]]
@@ -14,7 +14,7 @@ local DEFAULT_CONFIG = [[
 version: 1
 
 temple:
-  entry_key: "RightCtrl"
+  entry_key: "RightControl"     # Enum.KeyCode name (RightCtrl РЅРµ СЃСѓС‰РµСЃС‚РІСѓРµС‚ РІ Roblox)
   ui_mode: "hybrid"
   language: "ru"
 
@@ -48,15 +48,15 @@ scripts:
   stagger: 200
 
 git:
-  repo: "TempleEx/TempleEx"
+  repo: "FoarteBine/TempleEx"
   channel: "stable"
   auto_update: true
   mirrors:
     - "https://raw.githubusercontent.com"
     - "https://cdn.jsdelivr.net/gh"
   registries:
-    themes: "TempleEx/themes"
-    scripts: "TempleEx/hub-index"
+    themes: "FoarteBine/TempleEx"
+    scripts: "FoarteBine/TempleEx"
 
 theme:
   active: "midnight-temple"
@@ -108,7 +108,9 @@ Config.lastModified = 0
 Config.onChangeCallbacks = {}
 
 function Config.init(workspacePath)
-    Config.path = workspacePath .. "/temple.yaml"
+    if Config.data then return Config.data end
+    workspacePath = workspacePath or ""
+    Config.path = (workspacePath == "") and "temple.yaml" or (workspacePath .. "/temple.yaml")
     Config.ensureWorkspace(workspacePath)
     Config.load()
     if Config.data.theme.auto_reload then
@@ -117,18 +119,23 @@ function Config.init(workspacePath)
     return Config.data
 end
 
+local function joinPath(base, sub)
+    if base == nil or base == "" then return sub end
+    return base .. "/" .. sub
+end
+
 function Config.ensureWorkspace(workspacePath)
     local Executor = require(script.Parent.executor)
     pcall(Executor.fs_mkdir, workspacePath)
-    pcall(Executor.fs_mkdir, workspacePath .. "/themes")
-    pcall(Executor.fs_mkdir, workspacePath .. "/plugins")
-    pcall(Executor.fs_mkdir, workspacePath .. "/cache")
-    pcall(Executor.fs_mkdir, workspacePath .. "/cache/configs")
-    pcall(Executor.fs_mkdir, workspacePath .. "/logs")
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "themes"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "plugins"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "cache"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "cache/configs"))
+    pcall(Executor.fs_mkdir, joinPath(workspacePath, "logs"))
 end
 
 function Config.load()
-    local ok, content = pcall(Executor.fs_read, Config.path)
+    local ok, content = Executor.fs_read(Config.path)
     local data, errors
     if ok and content then
         data, errors = YAML.parse(content)
@@ -187,13 +194,13 @@ function Config.save(data)
 
     -- Backup before write
     local backupPath = Config.path .. ".bak"
-    local ok, current = pcall(Executor.fs_read, Config.path)
+    local ok, current = Executor.fs_read(Config.path)
     if ok and current then
         pcall(Executor.fs_write, backupPath, current)
     end
 
     local yamlContent = YAML.stringify(data)
-    local ok, err = pcall(Executor.fs_write, Config.path, yamlContent)
+    local ok, err = Executor.fs_write(Config.path, yamlContent)
     if ok then
         Config.lastModified = os.time()
         Log.info("Config saved to", Config.path)
