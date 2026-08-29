@@ -4,6 +4,10 @@
 
 $ErrorActionPreference = "Stop"
 
+# ── Single source of truth for the version ─────────────────────
+$Version = "1.0.1"
+$vmaj, $vmin, $vpat = $Version.Split(".")
+
 # Write UTF-8 WITHOUT BOM (PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM,
 # which breaks Luau's loadstring with "Expected identifier ... U+feff").
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -181,15 +185,20 @@ return result
 
 $output += $main
 
+# Stamp the single-source version into every place the build hardcodes it.
+$output = $output -replace 'TempleEx\.version = \{major = \d+, minor = \d+, patch = \d+\}', "TempleEx.version = {major = $vmaj, minor = $vmin, patch = $vpat}"
+$output = $output -replace 'TempleApi\.version = \{major = \d+, minor = \d+, patch = \d+\}', "TempleApi.version = {major = $vmaj, minor = $vmin, patch = $vpat}"
+$output = $output -replace 'Git\.currentVersion = "[\d.]+"', "Git.currentVersion = `"$Version`""
+
 Write-NoBom "TempleEx-full.lua" $output
-Write-Host "Built TempleEx-full.lua ($((Get-Item 'TempleEx-full.lua').Length) bytes)"
+Write-Host "Built TempleEx-full.lua ($((Get-Item 'TempleEx-full.lua').Length) bytes) v$Version"
 
 # Update bootloader version
 if (Test-Path "TempleEx.lua") {
     $bootloader = Get-Content "TempleEx.lua" -Raw -Encoding UTF8
-    $bootloader = $bootloader -replace 'local BOOTLOADER_VERSION = "[\d.]+"', 'local BOOTLOADER_VERSION = "1.0.0"'
+    $bootloader = $bootloader -replace 'local BOOTLOADER_VERSION = "[\d.]+"', "local BOOTLOADER_VERSION = `"$Version`""
     Write-NoBom "TempleEx.lua" $bootloader
-    Write-Host "Updated TempleEx.lua bootloader version"
+    Write-Host "Updated TempleEx.lua bootloader version to v$Version"
 }
 
 Write-Host "Build complete!"

@@ -47,7 +47,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 0}
+TempleApi.version = {major = 1, minor = 0, patch = 1}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}

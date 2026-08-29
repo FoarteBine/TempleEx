@@ -14,7 +14,7 @@ local Autoload = require(script.Parent.autoload)
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.0"
+Git.currentVersion = "1.0.1"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 

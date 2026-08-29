@@ -1,6 +1,6 @@
 --[[
     TempleEx - Main Entry Point (Bootloader + Single-File Build Target)
-    Version: 1.0.0
+    Version: 1.0.1
     Load via: loadstring(game:HttpGet("https://raw.githubusercontent.com/FoarteBine/TempleEx/main/TempleEx.lua"))()
 ]]
 
@@ -8,7 +8,7 @@
 -- BOOTLOADER SECTION (runs first, downloads full build if needed)
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
-local BOOTLOADER_VERSION = "1.0.0"
+local BOOTLOADER_VERSION = "1.0.1"
 local REPO = "FoarteBine/TempleEx"
 local BRANCH = "main"
 local MIRRORS = {
@@ -253,7 +253,7 @@ local function bootstrap()
     local fresh = downloadFullBuild()
     if fresh then
         pcall(fsWrite, CACHE_PATH, fresh)
-        writeVersionCache("1.0.0")
+        writeVersionCache(BOOTLOADER_VERSION)
         print("[TempleEx] Using latest build (cached for offline)")
         return fresh
     end
@@ -313,7 +313,8 @@ _G.TempleEx.ToggleGUI = function()
     end
 end
 
-print("[TempleEx] Loaded successfully v" .. (TempleEx.version and table.concat({TempleEx.version.major, TempleEx.version.minor, TempleEx.version.patch}, ".") or "1.0.0"))
+local buildVer = (TempleEx.version and table.concat({TempleEx.version.major, TempleEx.version.minor, TempleEx.version.patch}, ".")) or "?"
+print("[TempleEx] Loaded successfully v" .. buildVer .. " (bootloader v" .. BOOTLOADER_VERSION .. ")")
 print("[TempleEx] Executor:", EXECUTOR_INFO.name)
 print("[TempleEx] Press RightCtrl to toggle GUI")
 
