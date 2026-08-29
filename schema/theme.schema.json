@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TempleEx Theme",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "temple_theme": { "type": "integer", "const": 1 },
+    "name": { "type": "string" },
+    "author": { "type": "string" },
+    "extends": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+      "required": ["bg-0", "bg-1", "bg-2", "fg-0", "fg-1", "accent", "accent-2", "danger", "success", "warning"]
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": [
+        "window.bg", "window.border", "window.title.fg", "window.close.hover",
+        "sidebar.bg", "sidebar.item.active.bg", "sidebar.item.fg",
+        "tab.active", "tab.idle.fg", "tab.hover",
+        "section.header.fg",
+        "element.bg", "element.border", "element.focus",
+        "text.primary", "text.muted", "text.accent",
+        "toggle.track.off", "toggle.track.on", "toggle.knob",
+        "slider.fill", "slider.knob",
+        "dropdown.bg", "dropdown.item.hover",
+        "button.primary.bg", "button.primary.fg", "button.ghost.fg", "button.danger.bg",
+        "input.bg", "input.placeholder", "keybind.bg",
+        "notification.bg", "notification.fg",
+        "notification.level.info", "notification.level.success", "notification.level.warn", "notification.level.error",
+        "menubar.bg", "menubar.fg",
+        "dock.bg", "dock.icon", "dock.icon.active", "dock.indicator",
+        "snap.preview", "switcher.bg", "workspace.active.fg"
+      ]
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "font": { "type": "string", "default": "GothamSSm" },
+        "sizes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xs": { "type": "integer", "default": 12 },
+            "sm": { "type": "integer", "default": 14 },
+            "md": { "type": "integer", "default": 16 },
+            "lg": { "type": "integer", "default": 20 },
+            "xl": { "type": "integer", "default": 26 }
+          },
+          "required": ["xs", "sm", "md", "lg", "xl"]
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "radius": {
+          "type": "object",
+          "properties": {
+            "window": { "type": "integer", "default": 12 },
+            "element": { "type": "integer", "default": 8 },
+            "pill": { "type": "integer", "default": 999 }
+          }
+        },
+        "padding": {
+          "type": "object",
+          "properties": {
+            "window": { "type": "integer", "default": 14 },
+            "element": { "type": "integer", "default": 8 }
+          }
+        },
+        "spacing": { "type": "integer", "default": 6 },
+        "shadow": {
+          "type": "object",
+          "properties": {
+            "blur": { "type": "integer", "default": 12 },
+            "transparency": { "type": "number", "default": 0.5 },
+            "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "default": "#000000" }
+          }
+        }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "blur": { "type": "boolean", "default": true },
+        "gradient": {
+          "type": "object",
+          "properties": {
+            "angle": { "type": "integer", "default": 135 },
+            "from": { "type": "string", "pattern": "^palette\\." },
+            "to": { "type": "string", "pattern": "^palette\\." }
+          }
+        },
+        "animations": { "type": "boolean", "default": true },
+        "animation_speed": { "type": "number", "default": 1.0 }
+      }
+    },
+    "icons": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": { "type": "string", "default": "temple-default" },
+        "overrides": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sidebar": { "type": "string", "enum": ["left", "right", "top", "hidden"], "default": "left" },
+        "window_opacity": { "type": "number", "minimum": 0.1, "maximum": 1.0, "default": 0.96 }
+      }
+    }
+  },
+  "required": ["temple_theme", "name", "palette", "tokens"]
+}

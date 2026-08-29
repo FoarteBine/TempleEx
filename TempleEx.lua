@@ -1,0 +1,309 @@
+﻿--[[
+    TempleEx - Main Entry Point (Bootloader + Single-File Build Target)
+    Version: 1.0.0
+    Load via: loadstring(game:HttpGet("https://raw.githubusercontent.com/TempleEx/TempleEx/main/TempleEx.lua"))()
+]]
+
+-- ═══════════════════════════════════════════════════════════════
+-- BOOTLOADER SECTION (runs first, downloads full build if needed)
+-- ═══════════════════════════════════════════════════════════════
+
+local BOOTLOADER_VERSION = "1.0.0"
+local REPO = "TempleEx/TempleEx"
+local BRANCH = "main"
+local MIRRORS = {
+    "https://raw.githubusercontent.com",
+    "https://cdn.jsdelivr.net/gh"
+}
+
+-- Check if already loaded (idempotent)
+if _G.TempleExLoaded and _G.TempleEx then
+    -- Toggle GUI visibility
+    if _G.TempleEx.ToggleGUI then
+        _G.TempleEx.ToggleGUI()
+    end
+    return _G.TempleEx
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- EXECUTOR DETECTION (minimal, inline)
+-- ═══════════════════════════════════════════════════════════════
+
+local function detectExecutor()
+    local name = "unknown"
+    local caps = {}
+
+    local getgenv = getgenv or _G
+    local identifyexecutor = identifyexecutor or (getgenv and getgenv.identifyexecutor)
+
+    if identifyexecutor then
+        local ok, n, v = pcall(identifyexecutor)
+        if ok and n then name = n end
+    elseif getgenv and getgenv.Wave then name = "wave"
+    elseif getgenv and getgenv.Codex then name = "codex"
+    elseif getgenv and getgenv.Hydrogen then name = "hydrogen"
+    elseif getgenv and getgenv.Potassium then name = "potassium"
+    elseif getgenv and getgenv.Swift then name = "swift"
+    elseif getgenv and getgenv.Fluxus then name = "fluxus"
+    elseif getgenv and getgenv.Arceus then name = "arceus"
+    elseif getgenv and getgenv.Delta then name = "delta"
+    elseif getgenv and getgenv.Krnl then name = "krnl"
+    elseif getgenv and getgenv.Synapse then name = "synapse"
+    end
+
+    caps.request = (request or http_request or (syn and syn.request) or (getgenv and getgenv.request)) ~= nil
+    caps.httpget = (game and game.HttpGet) ~= nil
+    caps.queue_on_teleport = (queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)) ~= nil
+    caps.gethui = (gethui or (getgenv and getgenv.gethui)) ~= nil
+    caps.drawing = (Drawing or (getgenv and getgenv.Drawing)) ~= nil
+    caps.isfile = (isfile or (getgenv and getgenv.isfile)) ~= nil
+    caps.writefile = (writefile or (getgenv and getgenv.writefile)) ~= nil
+    caps.readfile = (readfile or (getgenv and getgenv.readfile)) ~= nil
+    caps.listfiles = (listfiles or (getgenv and getgenv.listfiles)) ~= nil
+    caps.makefolder = (makefolder or (getgenv and getgenv.makefolder)) ~= nil
+    caps.delfile = (delfile or (getgenv and getgenv.delfile)) ~= nil
+
+    return {
+        name = name:lower(),
+        capabilities = caps,
+        raw = {
+            request = request or http_request or (syn and syn.request) or (getgenv and getgenv.request),
+            httpget = game and game.HttpGet,
+            queue_on_teleport = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport),
+            gethui = gethui or (getgenv and getgenv.gethui),
+            isfile = isfile or (getgenv and getgenv.isfile),
+            writefile = writefile or (getgenv and getgenv.writefile),
+            readfile = readfile or (getgenv and getgenv.readfile),
+            listfiles = listfiles or (getgenv and getgenv.listfiles),
+            makefolder = makefolder or (getgenv and getgenv.makefolder),
+            delfile = delfile or (getgenv and getgenv.delfile),
+        }
+    }
+end
+
+local EXECUTOR_INFO = detectExecutor()
+
+-- ═══════════════════════════════════════════════════════════════
+-- MINIMAL HTTP + FS (for bootloader only)
+-- ═══════════════════════════════════════════════════════════════
+
+local function httpRequest(url, options)
+    options = options or {}
+    local method = options.Method or "GET"
+    local headers = options.Headers or {}
+    local body = options.Body
+
+    local req = EXECUTOR_INFO.raw.request
+    if req then
+        local ok, res = pcall(req, {Url = url, Method = method, Headers = headers, Body = body, Timeout = options.Timeout or 30})
+        if ok and res then return res end
+    end
+
+    if method == "GET" and EXECUTOR_INFO.raw.httpget then
+        local ok, content = pcall(EXECUTOR_INFO.raw.httpget, game, url)
+        if ok then return {StatusCode = 200, Body = content, Success = true} end
+    end
+
+    return {StatusCode = 0, Success = false, Error = "No HTTP provider"}
+end
+
+local function fsRead(path)
+    local fn = EXECUTOR_INFO.raw.readfile
+    if fn then return pcall(fn, path) end
+    return false, "readfile unavailable"
+end
+
+local function fsWrite(path, content)
+    local fn = EXECUTOR_INFO.raw.writefile
+    if fn then return pcall(fn, path, content) end
+    return false, "writefile unavailable"
+end
+
+local function fsList(path)
+    local fn = EXECUTOR_INFO.raw.listfiles
+    if fn then return pcall(fn, path) end
+    return false, "listfiles unavailable"
+end
+
+local function fsMkdir(path)
+    local fn = EXECUTOR_INFO.raw.makefolder
+    if fn then return pcall(fn, path) end
+    return false, "makefolder unavailable"
+end
+
+local function getHUI()
+    local fn = EXECUTOR_INFO.raw.gethui
+    if fn then return fn() end
+    return game:GetService("CoreGui")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- CACHE MANAGEMENT
+-- ═══════════════════════════════════════════════════════════════
+
+local function getWorkspacePath()
+    -- Try to detect workspace folder
+    local testPath = "TempleEx_test_write.tmp"
+    if pcall(fsWrite, testPath, "test") then
+        pcall(fsWrite, testPath, "") -- cleanup
+        return "."
+    end
+    return "workspace"
+end
+
+local WORKSPACE_PATH = getWorkspacePath()
+local CACHE_PATH = WORKSPACE_PATH .. "/TempleEx.lua"
+local VERSION_CACHE_PATH = WORKSPACE_PATH .. "/cache/TempleEx.version"
+local PREV_BUILD_PATH = WORKSPACE_PATH .. "/cache/TempleEx.prev.lua"
+
+local function readVersionCache()
+    local ok, content = fsRead(VERSION_CACHE_PATH)
+    if ok and content then return content:match("([%d%.]+)") end
+    return nil
+end
+
+local function writeVersionCache(version)
+    pcall(fsMkdir, WORKSPACE_PATH .. "/cache")
+    pcall(fsWrite, VERSION_CACHE_PATH, version)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- DOWNLOAD FULL BUILD
+-- ═══════════════════════════════════════════════════════════════
+
+local function downloadFullBuild()
+    print("[TempleEx] Downloading full build...")
+
+    for _, mirror in ipairs(MIRRORS) do
+        local url
+        if mirror:find("jsdelivr") then
+            url = mirror .. "/" .. REPO .. "@" .. BRANCH .. "/TempleEx-full.lua"
+        else
+            url = mirror .. "/" .. REPO .. "/" .. BRANCH .. "/TempleEx-full.lua"
+        end
+
+        local res = httpRequest(url)
+        if res.Success and res.Body and #res.Body > 1000 then
+            print("[TempleEx] Downloaded from:", url)
+            return res.Body
+        else
+            warn("[TempleEx] Mirror failed:", url, res.Error or "empty")
+        end
+    end
+
+    -- Try release asset
+    local apiRes = httpRequest("https://api.github.com/repos/" .. REPO .. "/releases/latest", {
+        Headers = {Accept = "application/vnd.github.v3+json"}
+    })
+    if apiRes.Success then
+        local data = game:GetService("HttpService"):JSONDecode(apiRes.Body)
+        if data.assets then
+            for _, asset in ipairs(data.assets) do
+                if asset.name == "TempleEx-full.lua" then
+                    local assetRes = httpRequest(asset.browser_download_url)
+                    if assetRes.Success then
+                        print("[TempleEx] Downloaded from release asset")
+                        return assetRes.Body
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- MAIN BOOTSTRAP
+-- ═══════════════════════════════════════════════════════════════
+
+local function bootstrap()
+    -- Try to load from cache first
+    local cachedBuild, cachedVersion
+    local ok, cached = fsRead(CACHE_PATH)
+    if ok and cached and #cached > 1000 then
+        cachedBuild = cached
+        cachedVersion = readVersionCache()
+        print("[TempleEx] Loaded from cache (v" .. (cachedVersion or "?") .. ")")
+    end
+
+    -- Check for updates if online
+    local shouldUpdate = false
+    if EXECUTOR_INFO.capabilities.request then
+        local apiRes = httpRequest("https://api.github.com/repos/" .. REPO .. "/releases/latest", {
+            Headers = {Accept = "application/vnd.github.v3+json"}
+        })
+        if apiRes.Success then
+            local data = game:GetService("HttpService"):JSONDecode(apiRes.Body)
+            if data.tag_name then
+                local latestVersion = data.tag_name:gsub("^v", "")
+                if not cachedVersion or latestVersion ~= cachedVersion then
+                    shouldUpdate = true
+                    print("[TempleEx] Update available:", latestVersion, "(cached:", cachedVersion or "none" .. ")")
+                end
+            end
+        end
+    end
+
+    -- Download if no cache or update available
+    local buildContent = cachedBuild
+    if not buildContent or shouldUpdate then
+        buildContent = downloadFullBuild()
+        if buildContent then
+            -- Save to cache
+            pcall(fsWrite, CACHE_PATH, buildContent)
+            -- Extract version from build (simple search)
+            local version = buildContent:match('version%s*=%s*["\']([%d%.]+)["\']') or "1.0.0"
+            writeVersionCache(version)
+            print("[TempleEx] Cached new build v" .. version)
+        elseif not cachedBuild then
+            error("[TempleEx] Failed to download build and no cache available. Check internet connection.")
+        else
+            warn("[TempleEx] Update failed, using cached version")
+        end
+    end
+
+    return buildContent
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- EXECUTE FULL BUILD
+-- ═══════════════════════════════════════════════════════════════
+
+local fullBuild = bootstrap()
+if not fullBuild then
+    error("[TempleEx] No build content available")
+end
+
+-- Execute the full build (which defines all modules and returns TempleApi)
+local buildFunc, err = loadstring(fullBuild, "TempleEx-full")
+if not buildFunc then
+    error("[TempleEx] Failed to compile build: " .. tostring(err))
+end
+
+local ok, TempleEx = pcall(buildFunc)
+if not ok then
+    error("[TempleEx] Build execution failed: " .. tostring(TempleEx))
+end
+
+-- ═══════════════════════════════════════════════════════════════
+- GLOBAL EXPORTS
+-- ═══════════════════════════════════════════════════════════════
+
+_G.TempleExLoaded = true
+_G.TempleEx = TempleEx
+_G.TempleApi = TempleEx
+_G.Temple = TempleEx
+
+-- Provide toggle function
+_G.TempleEx.ToggleGUI = function()
+    if TempleEx.Shell and TempleEx.Shell.screenGui then
+        TempleEx.Shell.screenGui.Enabled = not TempleEx.Shell.screenGui.Enabled
+    end
+end
+
+print("[TempleEx] Loaded successfully v" .. (TempleEx.version and table.concat({TempleEx.version.major, TempleEx.version.minor, TempleEx.version.patch}, ".") or "1.0.0"))
+print("[TempleEx] Executor:", EXECUTOR_INFO.name)
+print("[TempleEx] Press RightCtrl to toggle GUI")
+
+return TempleEx

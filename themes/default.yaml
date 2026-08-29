@@ -1,0 +1,90 @@
+temple_theme: 1
+name: Default Temple
+author: temple
+meta:
+  tags: [dark, neutral, default]
+  description: "Базовая тема TempleEx — нейтральный тёмный фон, синий акцент"
+
+palette:
+  bg-0: "#0a0d14"
+  bg-1: "#11151f"
+  bg-2: "#1a1f2e"
+  fg-0: "#e0e4ec"
+  fg-1: "#8a91a3"
+  accent: "#4a9eff"
+  accent-2: "#00d4aa"
+  danger: "#ff4d6a"
+  success: "#2ed573"
+  warning: "#ffa502"
+
+tokens:
+  window.bg: palette.bg-1
+  window.border: palette.bg-2
+  window.title.fg: palette.fg-0
+  window.close.hover: palette.danger
+  sidebar.bg: palette.bg-0
+  sidebar.item.active.bg: palette.accent
+  sidebar.item.fg: palette.fg-1
+  tab.active: palette.accent
+  tab.idle.fg: palette.fg-1
+  tab.hover: palette.bg-2
+  section.header.fg: palette.fg-0
+  element.bg: palette.bg-2
+  element.border: palette.bg-1
+  element.focus: palette.accent
+  text.primary: palette.fg-0
+  text.muted: palette.fg-1
+  text.accent: palette.accent
+  toggle.track.off: palette.bg-2
+  toggle.track.on: palette.accent
+  toggle.knob: palette.fg-0
+  slider.fill: palette.accent
+  slider.knob: palette.fg-0
+  dropdown.bg: palette.bg-2
+  dropdown.item.hover: palette.bg-1
+  button.primary.bg: palette.accent
+  button.primary.fg: palette.bg-0
+  button.ghost.fg: palette.fg-0
+  button.danger.bg: palette.danger
+  input.bg: palette.bg-2
+  input.placeholder: palette.fg-1
+  keybind.bg: palette.bg-2
+  notification.bg: palette.bg-1
+  notification.fg: palette.fg-0
+  notification.level.info: palette.accent
+  notification.level.success: palette.success
+  notification.level.warn: palette.warning
+  notification.level.error: palette.danger
+  menubar.bg: palette.bg-0
+  menubar.fg: palette.fg-0
+  dock.bg: palette.bg-0
+  dock.icon: palette.fg-1
+  dock.icon.active: palette.accent-2
+  dock.indicator: palette.accent
+  snap.preview: palette.accent
+  switcher.bg: palette.bg-1
+  workspace.active.fg: palette.accent
+
+typography:
+  font: GothamSSm
+  sizes: { xs: 12, sm: 14, md: 16, lg: 20, xl: 26 }
+
+geometry:
+  radius: { window: 12, element: 8, pill: 999 }
+  padding: { window: 14, element: 8 }
+  spacing: 6
+  shadow: { blur: 12, transparency: 0.5, color: "#000000" }
+
+effects:
+  blur: true
+  gradient: { angle: 135, from: palette.bg-1, to: palette.bg-0 }
+  animations: true
+  animation_speed: 1.0
+
+icons:
+  set: temple-default
+  overrides: {}
+
+layout:
+  sidebar: left
+  window_opacity: 0.96

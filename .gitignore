@@ -1,0 +1,36 @@
+# TempleEx - Build artifacts & local files
+# Dependencies
+node_modules/
+
+# Build outputs
+TempleEx-full.lua
+
+# Workspace / runtime data
+workspace/
+workspace_test/
+*.log
+cache/
+logs/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / Keys (never commit)
+.env
+*.key
+*.pem
+
+# Documentation (keep TZ.md in repo for reference)
+# TZ.md
+
+# Test / Temp
+*.tmp
+*.temp
+test_*

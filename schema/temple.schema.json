@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TempleEx Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "temple": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entry_key": { "type": "string", "default": "RightCtrl" },
+        "ui_mode": { "type": "string", "enum": ["drawing", "surface", "hybrid"], "default": "hybrid" },
+        "language": { "type": "string", "default": "ru" }
+      },
+      "required": ["entry_key"]
+    },
+    "shell": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wm": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snap": { "type": "boolean", "default": true },
+            "tiling": { "type": "string", "enum": ["off", "columns", "grid"], "default": "off" },
+            "workspaces": { "type": "integer", "minimum": 0, "maximum": 8, "default": 3 },
+            "switcher_key": { "type": "string", "default": "Alt+Tab" },
+            "remember": { "type": "boolean", "default": true }
+          }
+        },
+        "menubar": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "height": { "type": "integer", "minimum": 16, "maximum": 48, "default": 24 },
+            "autohide": { "type": "boolean", "default": false },
+            "items": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["menu", "title", "clock", "fps", "executor", "theme", "tray", "binds"] },
+              "default": ["menu", "title", "clock", "fps", "executor", "theme", "tray", "binds"]
+            }
+          }
+        },
+        "dock": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "position": { "type": "string", "enum": ["bottom"], "default": "bottom" },
+            "reveal": { "type": "string", "enum": ["hover", "always", "key"], "default": "hover" },
+            "reveal_zone": { "type": "integer", "minimum": 1, "maximum": 20, "default": 4 },
+            "hide_delay": { "type": "number", "minimum": 0.1, "maximum": 5, "default": 0.4 },
+            "icon_size": { "type": "integer", "minimum": 24, "maximum": 80, "default": 40 },
+            "magnify": { "type": "boolean", "default": true },
+            "pins": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["fly", "esp", "speed", "themes", "ai", "scripts"]
+            }
+          }
+        }
+      }
+    },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoload": { "type": "boolean", "default": true },
+        "restore_session": { "type": "boolean", "default": true },
+        "rejoin_relaunch": { "type": "boolean", "default": true },
+        "watch_folder": { "type": "boolean", "default": true },
+        "stagger": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 200 }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "type": "string", "default": "TempleEx/TempleEx" },
+        "channel": { "type": "string", "enum": ["stable", "canary"], "default": "stable" },
+        "auto_update": { "type": "boolean", "default": true },
+        "mirrors": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" },
+          "default": [
+            "https://raw.githubusercontent.com",
+            "https://cdn.jsdelivr.net/gh"
+          ]
+        },
+        "registries": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "themes": { "type": "string", "default": "TempleEx/themes" },
+            "scripts": { "type": "string", "default": "TempleEx/hub-index" }
+          }
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active": { "type": "string", "default": "midnight-temple" },
+        "fallback": { "type": "string", "default": "default" },
+        "auto_reload": { "type": "boolean", "default": true },
+        "accent_override": { "type": ["string", "null"], "default": null }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace": { "type": "string", "default": "auto" },
+        "themes": { "type": "string", "default": "themes" },
+        "plugins": { "type": "string", "default": "plugins" }
+      }
+    },
+    "functions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "keybind": { "type": "string" }
+        }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "file": { "type": "string" },
+          "autoload": { "type": "boolean", "default": false }
+        },
+        "required": ["name", "file"]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string", "enum": ["openai-compatible", "anthropic", "local-ollama", "custom"], "default": "openai-compatible" },
+        "base_url": { "type": "string", "format": "uri", "default": "https://api.openai.com/v1" },
+        "model": { "type": "string", "default": "gpt-4o-mini" },
+        "api_key_env": { "type": "string", "default": "TEMPLE_AI_KEY" },
+        "agents": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": { "type": "string", "default": "inherit" },
+              "temperature": { "type": "number", "minimum": 0, "maximum": 2, "default": 0.7 }
+            }
+          }
+        }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "notify_default": {
+          "type": "object",
+          "properties": {
+            "duration": { "type": "number", "default": 5 },
+            "position": { "type": "string", "enum": ["top-right", "top-left", "bottom-right", "bottom-left", "center"], "default": "top-right" }
+          }
+        },
+        "window_default": {
+          "type": "object",
+          "properties": {
+            "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "default": [520, 380] },
+            "remember_pos": { "type": "boolean", "default": true }
+          }
+        },
+        "stealth": {
+          "type": "object",
+          "properties": {
+            "gui_name_prefix": { "type": ["string", "null"], "default": null },
+            "anti_screenshot": { "type": "boolean", "default": false }
+          }
+        }
+      }
+    }
+  },
+  "required": ["version", "temple"]
+}
