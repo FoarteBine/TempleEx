@@ -70,8 +70,9 @@ for name in "${MODULES[@]}"; do
     path="src/${name}.lua"
     if [ -f "$path" ]; then
         content=$(sed -E -e '1s/^\xEF\xBB\xBF//' -e 's/require[[:space:]]*\([[:space:]]*script\.Parent\.([[:alnum:]_]+)[[:space:]]*\)/TempleExRequire("\1")/g' "$path")
-        OUTPUT+="-- Module: ${name}
+        OUTPUT+="TempleExModules[\"${name}\"] = function()
 ${content}
+end
 
 "
         echo "  Added module: ${name}"

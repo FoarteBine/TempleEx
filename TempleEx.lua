@@ -223,52 +223,25 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local function bootstrap()
-    -- Try to load from cache first
-    local cachedBuild, cachedVersion
+    -- Download-first: a loadstring should always fetch the latest build.
+    -- The cache is only an OFFLINE fallback (we don't publish GitHub releases,
+    -- so a release-based update check would pin the user to a stale build forever).
+    local fresh = downloadFullBuild()
+    if fresh then
+        pcall(fsWrite, CACHE_PATH, fresh)
+        writeVersionCache("1.0.0")
+        print("[TempleEx] Using latest build (cached for offline)")
+        return fresh
+    end
+
+    -- Offline / all mirrors failed: fall back to cache
     local ok, cached = fsRead(CACHE_PATH)
     if ok and cached and #cached > 1000 then
-        cachedBuild = cached
-        cachedVersion = readVersionCache()
-        print("[TempleEx] Loaded from cache (v" .. (cachedVersion or "?") .. ")")
+        warn("[TempleEx] Offline - using cached build")
+        return cached
     end
 
-    -- Check for updates if online
-    local shouldUpdate = false
-    if EXECUTOR_INFO.capabilities.request then
-        local apiRes = httpRequest("https://api.github.com/repos/" .. REPO .. "/releases/latest", {
-            Headers = {Accept = "application/vnd.github.v3+json"}
-        })
-        if apiRes.Success then
-            local data = game:GetService("HttpService"):JSONDecode(apiRes.Body)
-            if data.tag_name then
-                local latestVersion = data.tag_name:gsub("^v", "")
-                if not cachedVersion or latestVersion ~= cachedVersion then
-                    shouldUpdate = true
-                    print("[TempleEx] Update available:", latestVersion, "(cached:", cachedVersion or "none" .. ")")
-                end
-            end
-        end
-    end
-
-    -- Download if no cache or update available
-    local buildContent = cachedBuild
-    if not buildContent or shouldUpdate then
-        buildContent = downloadFullBuild()
-        if buildContent then
-            -- Save to cache
-            pcall(fsWrite, CACHE_PATH, buildContent)
-            -- Extract version from build (simple search)
-            local version = buildContent:match('version%s*=%s*["\']([%d%.]+)["\']') or "1.0.0"
-            writeVersionCache(version)
-            print("[TempleEx] Cached new build v" .. version)
-        elseif not cachedBuild then
-            error("[TempleEx] Failed to download build and no cache available. Check internet connection.")
-        else
-            warn("[TempleEx] Update failed, using cached version")
-        end
-    end
-
-    return buildContent
+    error("[TempleEx] Failed to download build and no cache available. Check internet connection.")
 end
 
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ

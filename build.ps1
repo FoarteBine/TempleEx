@@ -91,9 +91,13 @@ foreach ($name in $modules) {
     $path = "src\$name.lua"
     if (Test-Path $path) {
         $content = Get-Content $path -Raw -Encoding UTF8
+        # Strip any leading BOM that survived reading
+        $content = $content.TrimStart([char]0xFEFF)
         # Replace require(script.Parent.xxx) with TempleExRequire("xxx")
         $content = $content -replace 'require\s*\(\s*script\.Parent\.(\w+)\s*\)', 'TempleExRequire("$1")'
-        $output += "-- Module: $name`n" + $content + "`n`n"
+        # Wrap the module body in a function registered in TempleExModules.
+        # The module's trailing `return X` becomes this function's return value.
+        $output += "TempleExModules[`"$name`"] = function()`n" + $content + "`nend`n`n"
         Write-Host "  Added module: $name"
     } else {
         Write-Warning "Module not found: $path"

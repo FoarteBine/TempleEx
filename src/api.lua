@@ -299,8 +299,8 @@ function TempleApi.Window(options)
                         window.minimize()
                     end
                 end
-            end
-        end)
+            end)
+        end
     end
 
     -- Window methods
