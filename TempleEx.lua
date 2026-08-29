@@ -33,7 +33,18 @@ local function detectExecutor()
     local name = "unknown"
     local caps = {}
 
-    local getgenv = getgenv or _G
+    -- Resolve the global environment TABLE (getgenv is usually a FUNCTION;
+    -- indexing it directly errors in Luau). Normalize to a table once.
+    local getgenv = (function()
+        local g = getgenv
+        if type(g) == "function" then
+            local ok, r = pcall(g)
+            if ok and type(r) == "table" then return r end
+        elseif type(g) == "table" then
+            return g
+        end
+        return _G
+    end)()
     local identifyexecutor = identifyexecutor or (getgenv and getgenv.identifyexecutor)
 
     if identifyexecutor then
@@ -81,7 +92,11 @@ local function detectExecutor()
     }
 end
 
-local EXECUTOR_INFO = detectExecutor()
+-- Never let executor detection kill the bootloader; fall back to a minimal
+-- profile (httpRequest then uses game:HttpGet, which is always available).
+local detectOk, detectInfo = pcall(detectExecutor)
+local EXECUTOR_INFO = (detectOk and detectInfo)
+    or { name = "unknown", version = "unknown", capabilities = {}, raw_globals = {} }
 
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 -- MINIMAL HTTP + FS (for bootloader only)

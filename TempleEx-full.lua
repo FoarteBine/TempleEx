@@ -391,8 +391,19 @@ function Executor.detect()
     local version = "unknown"
     local caps = {}
 
-    -- Common globals
-    local getgenv = getgenv or _G
+    -- Resolve the global environment TABLE. In most executors `getgenv` is a
+    -- FUNCTION (getgenv() -> env table); indexing a function errors in Luau
+    -- ("attempt to index function with 'hookmetamethod'"). Normalize to a table.
+    local getgenv = (function()
+        local g = getgenv  -- the global: function, table, or nil
+        if type(g) == "function" then
+            local ok, r = pcall(g)
+            if ok and type(r) == "table" then return r end
+        elseif type(g) == "table" then
+            return g
+        end
+        return _G
+    end)()
     local identifyexecutor = identifyexecutor or (getgenv and getgenv.identifyexecutor)
 
     if identifyexecutor then
@@ -498,7 +509,10 @@ function Executor.detect()
     }
 end
 
-Executor.info = Executor.detect()
+-- Detect at load, but never let a weird executor's globals kill initialization.
+local detectOk, detectInfo = pcall(Executor.detect)
+Executor.info = (detectOk and detectInfo)
+    or { name = "unknown", version = "unknown", capabilities = {}, raw_globals = {} }
 
 -- HTTP Request with fallback chain
 function Executor.http(url, options)
