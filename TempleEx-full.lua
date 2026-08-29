@@ -3765,24 +3765,23 @@ function Shell.initDock(config)
 end
 
 function Shell.showDock()
-    if Shell.dockVisible or Shell.dockAnimating then return end
-    Shell.dockAnimating = true
+    if not Shell.dock then return end
+    Shell.dockVisible = true
     Shell.dock.Visible = true
     tween(Shell.dock, {Position = UDim2.new(0, 0, 1, 0)}, 0.2)
-    Shell.dockVisible = true
-    task.delay(0.2, function() Shell.dockAnimating = false end)
 end
 
 function Shell.hideDock()
-    if not Shell.dockVisible or Shell.dockAnimating then return end
-    Shell.dockAnimating = true
-    tween(Shell.dock, {Position = UDim2.new(0, 0, 1, Shell.dock.AbsoluteSize.Y + 10)}, 0.2)
-    task.delay(0.2, function()
-        if not Shell.dockVisible then return end
-        Shell.dock.Visible = false
-        Shell.dockAnimating = false
-    end)
+    if not Shell.dock then return end
     Shell.dockVisible = false
+    local off = Shell.dock.Size.Y.Offset + 10
+    tween(Shell.dock, {Position = UDim2.new(0, 0, 1, off)}, 0.2)
+    task.delay(0.2, function()
+        -- Finish hiding only if it is still meant to be hidden (no re-show since).
+        if not Shell.dockVisible then
+            Shell.dock.Visible = false
+        end
+    end)
 end
 
 function Shell.addDockPin(pinId)
@@ -4790,7 +4789,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.1"
+Git.currentVersion = "1.0.2"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -5607,7 +5606,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 1}
+TempleApi.version = {major = 1, minor = 0, patch = 2}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -7059,7 +7058,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 1}
+TempleEx.version = {major = 1, minor = 0, patch = 2}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)
