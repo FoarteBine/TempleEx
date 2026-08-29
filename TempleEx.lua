@@ -194,12 +194,16 @@ end
 local function downloadFullBuild()
     print("[TempleEx] Downloading full build...")
 
+    -- Cache-buster: many executors cache game:HttpGet/request responses by URL.
+    -- A unique query string forces a fresh fetch (GitHub raw ignores query params).
+    local bust = "?templebust=" .. tostring(os.time()) .. tostring(math.random(100000, 999999))
+
     for _, mirror in ipairs(MIRRORS) do
         local url
         if mirror:find("jsdelivr") then
-            url = mirror .. "/" .. REPO .. "@" .. BRANCH .. "/TempleEx-full.lua"
+            url = mirror .. "/" .. REPO .. "@" .. BRANCH .. "/TempleEx-full.lua" .. bust
         else
-            url = mirror .. "/" .. REPO .. "/" .. BRANCH .. "/TempleEx-full.lua"
+            url = mirror .. "/" .. REPO .. "/" .. BRANCH .. "/TempleEx-full.lua" .. bust
         end
 
         local res = httpRequest(url)
