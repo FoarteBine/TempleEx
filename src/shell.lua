@@ -46,12 +46,29 @@ Shell.switcherGui = nil
 -- Theme tokens cache
 local tokens = {}
 
+-- Convert a "#rrggbb"/"rrggbb" string to Color3; pass through Color3/nil.
+local function toColor3(v, fallback)
+    if typeof(v) == "Color3" then return v end
+    if type(v) == "string" then
+        local hex = v:gsub("#", "")
+        if #hex == 3 then hex = hex:gsub("(.)", "%1%1") end
+        if #hex == 6 then
+            local r = tonumber(hex:sub(1, 2), 16)
+            local g = tonumber(hex:sub(3, 4), 16)
+            local b = tonumber(hex:sub(5, 6), 16)
+            if r and g and b then return Color3.new(r / 255, g / 255, b / 255) end
+        end
+    end
+    return fallback
+end
+
 local function updateTokens()
     local raw = ThemeEngine.currentRawTheme
     local geo = raw and raw.geometry or {}
     local rad = geo.radius or {}
     local pad = geo.padding or {}
     local fx = raw and raw.effects or {}
+    local shadow = geo.shadow or {}
     tokens = {
         bg = ThemeEngine.getToken("window.bg"),
         border = ThemeEngine.getToken("window.border"),
@@ -61,6 +78,8 @@ local function updateTokens()
         textPrimary = ThemeEngine.getToken("text.primary"),
         textMuted = ThemeEngine.getToken("text.muted"),
         accent = ThemeEngine.getToken("toggle.track.on"),
+        warning = ThemeEngine.getToken("notification.level.warn"),
+        danger = ThemeEngine.getToken("button.danger.bg"),
         menubarBg = ThemeEngine.getToken("menubar.bg"),
         menubarFg = ThemeEngine.getToken("menubar.fg"),
         dockBg = ThemeEngine.getToken("dock.bg"),
@@ -75,7 +94,11 @@ local function updateTokens()
         elementFocus = ThemeEngine.getToken("element.focus"),
         radius = rad.window or 12,
         padding = pad.window or 14,
-        shadow = geo.shadow or {blur = 12, transparency = 0.5, color = Color3.new(0, 0, 0)},
+        shadow = {
+            blur = shadow.blur or 12,
+            transparency = shadow.transparency or 0.5,
+            color = toColor3(shadow.color, Color3.new(0, 0, 0)),
+        },
         animSpeed = fx.animation_speed or 1.0,
         animations = fx.animations == nil and true or fx.animations,
     }

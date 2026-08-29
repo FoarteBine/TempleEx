@@ -231,7 +231,13 @@ end
 
 -- Get token value (Color3 or other)
 function ThemeEngine.getToken(token)
-    return ThemeEngine.tokens[token]
+    local v = ThemeEngine.tokens[token]
+    if typeof(v) == "Color3" then return v end
+    -- Defensive: a raw hex string that slipped through resolution -> Color3.
+    if type(v) == "string" and v:sub(1, 1) == "#" then
+        return hexToColor3(v)
+    end
+    return v
 end
 
 -- Get raw theme data
