@@ -3,7 +3,9 @@
 node_modules/
 
 # Build outputs
-TempleEx-full.lua
+# NOTE: TempleEx-full.lua IS committed on purpose — the bootloader downloads
+# it via raw.githubusercontent.com, so the raw link must resolve.
+# TempleEx-full.lua
 
 # Workspace / runtime data
 workspace/
@@ -27,8 +29,8 @@ Thumbs.db
 *.key
 *.pem
 
-# Documentation (keep TZ.md in repo for reference)
-# TZ.md
+# Internal docs (not published)
+TZ.md
 
 # Test / Temp
 *.tmp
