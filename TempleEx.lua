@@ -16,12 +16,17 @@ local MIRRORS = {
     "https://cdn.jsdelivr.net/gh"
 }
 
--- Check if already loaded (idempotent)
+-- Check if already loaded (idempotent). Re-running should SHOW the hub, not
+-- toggle it (toggling would hide a visible dock and confuse "dock disappears
+-- on the 2nd run"). RightCtrl is the real toggle.
 if _G.TempleExLoaded and _G.TempleEx then
-    -- Toggle GUI visibility
-    if _G.TempleEx.ToggleGUI then
-        _G.TempleEx.ToggleGUI()
+    local S = _G.TempleEx.Shell
+    if S and S.showGUI then
+        S.showGUI()
+    elseif S and S.screenGui then
+        S.screenGui.Enabled = true
     end
+    print("[TempleEx] Already loaded - showing hub (RightCtrl toggles)")
     return _G.TempleEx
 end
 
@@ -299,9 +304,11 @@ _G.TempleEx = TempleEx
 _G.TempleApi = TempleEx.Api or _G.TempleApi
 _G.Temple = TempleEx.Api or _G.Temple
 
--- Provide toggle function
+-- Provide toggle function (RightCtrl and scripts use this)
 _G.TempleEx.ToggleGUI = function()
-    if TempleEx.Shell and TempleEx.Shell.screenGui then
+    if TempleEx.Shell and TempleEx.Shell.toggleGUI then
+        TempleEx.Shell.toggleGUI()
+    elseif TempleEx.Shell and TempleEx.Shell.screenGui then
         TempleEx.Shell.screenGui.Enabled = not TempleEx.Shell.screenGui.Enabled
     end
 end

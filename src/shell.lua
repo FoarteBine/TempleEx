@@ -1314,11 +1314,16 @@ function Shell.bindGlobalKeys(wmConfig)
     -- Entry key (toggle all windows / hub)
     local entryKey = Config.get("temple.entry_key") or "RightControl"
     local okEntry, entryKeyCode = pcall(function() return Enum.KeyCode[entryKey] end)
+    if not (okEntry and entryKeyCode) then
+        -- Stale/invalid value in the saved config (e.g. old "RightCtrl"): fall back.
+        entryKey = "RightControl"
+        okEntry, entryKeyCode = pcall(function() return Enum.KeyCode[entryKey] end)
+    end
     if okEntry and entryKeyCode then
         UserInputService.InputBegan:Connect(function(input, processed)
             if processed then return end
             if input.KeyCode == entryKeyCode then
-                Shell.toggleAllWindows()
+                Shell.toggleGUI()
             end
         end)
     end
@@ -1351,6 +1356,19 @@ function Shell.bindGlobalKeys(wmConfig)
                 end
             end)
         end
+    end
+end
+
+-- Show / hide the entire hub (dock + menu bar + windows live in screenGui).
+function Shell.toggleGUI()
+    if Shell.screenGui then
+        Shell.screenGui.Enabled = not Shell.screenGui.Enabled
+    end
+end
+
+function Shell.showGUI()
+    if Shell.screenGui then
+        Shell.screenGui.Enabled = true
     end
 end
 
