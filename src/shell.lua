@@ -770,7 +770,7 @@ function Shell.initDock(config)
     Shell.dock = createInstance("Frame", {
         Name = "Dock",
         Size = UDim2.new(1, 0, 0, dockHeight),
-        Position = UDim2.new(0, 0, 1, 0), -- start hidden (off-screen)
+        Position = UDim2.new(0, 0, 1, dockHeight + 10), -- start off-screen (slides up on reveal)
         AnchorPoint = Vector2.new(0, 1),
         BackgroundColor3 = tokens.dockBg,
         BackgroundTransparency = 0.1,
@@ -797,7 +797,9 @@ function Shell.initDock(config)
         Shell.addDockPin(pinId)
     end
 
-    -- Hover reveal logic
+    -- Hover reveal logic. Token-based: entering the dock OR the reveal zone
+    -- bumps a token that cancels any scheduled hide, so moving between them
+    -- never hides the dock, and re-entering always shows it (no stuck debounce).
     if Shell.dockConfig.reveal == "hover" then
         local revealArea = createInstance("Frame", {
             Name = "DockRevealZone",
@@ -809,45 +811,38 @@ function Shell.initDock(config)
         })
         revealArea.Parent = Shell.screenGui
 
-        local revealDebounce = false
-        revealArea.MouseEnter:Connect(function()
-            if not revealDebounce then
-                revealDebounce = true
-                Shell.showDock()
+        local hideToken = 0
+        local function mouseOverDockOrZone()
+            local m = UserInputService:GetMouseLocation()
+            if Shell.dock then
+                local p, s = Shell.dock.AbsolutePosition, Shell.dock.AbsoluteSize
+                if m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y and m.Y <= p.Y + s.Y then
+                    return true
+                end
             end
-        end)
+            -- reveal strip is pinned to the bottom edge
+            if m.Y >= revealArea.AbsolutePosition.Y then return true end
+            return false
+        end
+        local function onEnter()
+            hideToken = hideToken + 1          -- cancel any scheduled hide
+            Shell.showDock()
+        end
+        local function onLeave()
+            hideToken = hideToken + 1
+            local myToken = hideToken
+            task.delay(Shell.dockConfig.hideDelay, function()
+                if hideToken ~= myToken then return end   -- re-entered meanwhile
+                if not mouseOverDockOrZone() then          -- safety net vs event race
+                    Shell.hideDock()
+                end
+            end)
+        end
 
-        Shell.dock.MouseLeave:Connect(function()
-            task.wait(Shell.dockConfig.hideDelay)
-            -- Check if mouse is still not over dock or reveal zone
-            local mouse = UserInputService:GetMouseLocation()
-            local dockPos = Shell.dock.AbsolutePosition
-            local dockSize = Shell.dock.AbsoluteSize
-            local revealPos = revealArea.AbsolutePosition
-
-            local overDock = mouse.X >= dockPos.X and mouse.X <= dockPos.X + dockSize.X and
-                           mouse.Y >= dockPos.Y and mouse.Y <= dockPos.Y + dockSize.Y
-            local overReveal = mouse.Y >= revealPos.Y
-
-            if not overDock and not overReveal then
-                Shell.hideDock()
-            end
-            revealDebounce = false
-        end)
-
-        revealArea.MouseLeave:Connect(function()
-            task.wait(Shell.dockConfig.hideDelay)
-            local mouse = UserInputService:GetMouseLocation()
-            local dockPos = Shell.dock.AbsolutePosition
-            local dockSize = Shell.dock.AbsoluteSize
-
-            local overDock = mouse.X >= dockPos.X and mouse.X <= dockPos.X + dockSize.X and
-                           mouse.Y >= dockPos.Y and mouse.Y <= dockPos.Y + dockSize.Y
-
-            if not overDock then
-                Shell.hideDock()
-            end
-        end)
+        revealArea.MouseEnter:Connect(onEnter)
+        revealArea.MouseLeave:Connect(onLeave)
+        Shell.dock.MouseEnter:Connect(onEnter)
+        Shell.dock.MouseLeave:Connect(onLeave)
     end
 end
 
