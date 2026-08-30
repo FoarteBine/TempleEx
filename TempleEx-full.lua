@@ -2955,14 +2955,16 @@ Icons.paths = {
     chevron_right = "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z",
 }
 
--- Text fallback glyphs (used only if VectorGraphic is unavailable)
+-- Text fallback glyphs (used only if VectorGraphic is unavailable).
+-- Monochrome Unicode symbols that Roblox's fonts actually render (color emoji
+-- often draw as blank boxes in-game).
 Icons.fallback = {
-    close = "✕", minimize = "–", maximize = "□", restore = "❐",
-    flight = "✈", directions_run = "🏃", visibility = "👁", block = "👻",
-    arrow_upward = "⤒", wb_sunny = "☀", center_focus = "🎯", photo_camera = "🎥",
-    palette = "🎨", auto_awesome = "✨", code = "📜", settings = "⚙", search = "🔍",
-    home = "⌂", play_arrow = "▶", check = "✓", add = "+", delete = "🗑",
-    folder = "📁", refresh = "↻", expand_more = "▾", chevron_right = "›",
+    close = "✕", minimize = "–", maximize = "□", restore = "⊡",
+    flight = "✈", directions_run = "➤", visibility = "◉", block = "⊘",
+    arrow_upward = "↑", wb_sunny = "☀", center_focus = "◎", photo_camera = "▣",
+    palette = "◐", auto_awesome = "✦", code = "‹›", settings = "⚙", search = "⌕",
+    home = "⌂", play_arrow = "▶", check = "✓", add = "+", delete = "⌫",
+    folder = "▤", refresh = "↻", expand_more = "▾", chevron_right = "›",
 }
 
 local function colorToHex(c)
@@ -2974,8 +2976,11 @@ end
 local function buildSvg(name, hex)
     local d = Icons.paths[name]
     if not d then return nil end
+    -- VectorGraphic needs explicit width/height on the root <svg> to compute its
+    -- viewport; fill="none" on the root, real fill on the path (matches working
+    -- Roblox VectorGraphic examples).
     return string.format(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%s" d="%s"/></svg>',
+        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="%s" d="%s"/></svg>',
         hex, d)
 end
 
@@ -3001,11 +3006,20 @@ function Icons.new(name, parent, size, color3)
             return g
         end)
         if ok and vg then
+            if not Icons._reported then
+                Icons._reported = true
+                print("[TempleEx] Icons: VectorGraphic supported (Material SVG)")
+            end
             return vg, function(c3)
                 local s = buildSvg(name, colorToHex(c3))
                 if s then vg.Data = s end
             end
         end
+    end
+
+    if not Icons._reported then
+        Icons._reported = true
+        print("[TempleEx] Icons: VectorGraphic NOT supported -> text fallback")
     end
 
     -- Fallback: text glyph
@@ -4927,7 +4941,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.3"
+Git.currentVersion = "1.0.4"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -5745,7 +5759,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 3}
+TempleApi.version = {major = 1, minor = 0, patch = 4}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -7196,7 +7210,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 3}
+TempleEx.version = {major = 1, minor = 0, patch = 4}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)
