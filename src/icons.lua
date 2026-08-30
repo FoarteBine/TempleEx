@@ -75,33 +75,41 @@ function Icons.new(name, parent, size, color3)
     local svg = buildSvg(name, hex)
 
     if svg then
-        local ok, vg = pcall(function()
-            local g = Instance.new("VectorGraphic")
-            g.Name = "Icon_" .. name
-            g.Data = svg
-            g.BackgroundTransparency = 1
-            g.Size = UDim2.new(0, size, 0, size)
-            g.Position = UDim2.new(0.5, 0, 0.5, 0)
-            g.AnchorPoint = Vector2.new(0.5, 0.5)
-            g.ZIndex = (parent and parent.ZIndex or 1) + 1
-            g.Parent = parent
-            return g
-        end)
-        if ok and vg then
+        -- (1) Does the VectorGraphic class exist on this client at all?
+        local classOk, vg = pcall(Instance.new, "VectorGraphic")
+        if classOk and vg then
+            -- (2) Does it accept our SVG markup?
+            local dataOk, dataErr = pcall(function() vg.Data = svg end)
+            if dataOk then
+                pcall(function()
+                    vg.Name = "Icon_" .. name
+                    vg.BackgroundTransparency = 1
+                    vg.Size = UDim2.new(0, size, 0, size)
+                    vg.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    vg.AnchorPoint = Vector2.new(0.5, 0.5)
+                    vg.ZIndex = (parent and parent.ZIndex or 1) + 1
+                    vg.Parent = parent
+                end)
+                if not Icons._reported then
+                    Icons._reported = true
+                    print("[TempleEx] Icons: VectorGraphic OK (Material SVG)")
+                end
+                return vg, function(c3)
+                    local s = buildSvg(name, colorToHex(c3))
+                    if s then pcall(function() vg.Data = s end) end
+                end
+            else
+                if not Icons._reported then
+                    Icons._reported = true
+                    print("[TempleEx] Icons: VectorGraphic class exists but rejected SVG Data: " .. tostring(dataErr))
+                end
+            end
+        else
             if not Icons._reported then
                 Icons._reported = true
-                print("[TempleEx] Icons: VectorGraphic supported (Material SVG)")
-            end
-            return vg, function(c3)
-                local s = buildSvg(name, colorToHex(c3))
-                if s then vg.Data = s end
+                print("[TempleEx] Icons: VectorGraphic class unavailable on this client")
             end
         end
-    end
-
-    if not Icons._reported then
-        Icons._reported = true
-        print("[TempleEx] Icons: VectorGraphic NOT supported -> text fallback")
     end
 
     -- Fallback: text glyph
