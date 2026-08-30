@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 # ── Single source of truth for the version ─────────────────────
-$Version = "1.0.5"
+$Version = "1.0.6"
 $vmaj, $vmin, $vpat = $Version.Split(".")
 
 # Write UTF-8 WITHOUT BOM (PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM,
@@ -167,6 +167,7 @@ local function init()
     TempleEx.AI = AI
     TempleEx.Api = TempleApi
     TempleEx.Assets = Assets
+    TempleEx.Icons = TempleExRequire("icons")
 
     _G.TempleEx = TempleEx
     _G.TempleApi = TempleApi

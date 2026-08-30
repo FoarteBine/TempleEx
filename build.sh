@@ -6,7 +6,7 @@
 set -e
 
 # ── Single source of truth for the version ─────────────────────
-VERSION="1.0.5"
+VERSION="1.0.6"
 IFS='.' read -r VMAJ VMIN VPAT <<< "$VERSION"
 
 # ── Step 1: generate src/assets.lua ────────────────────────────
@@ -134,6 +134,7 @@ local function init()
     TempleEx.AI = AI
     TempleEx.Api = TempleApi
     TempleEx.Assets = Assets
+    TempleEx.Icons = TempleExRequire("icons")
 
     _G.TempleEx = TempleEx
     _G.TempleApi = TempleApi

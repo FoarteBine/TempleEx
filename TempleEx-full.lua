@@ -2918,12 +2918,22 @@ end
 TempleExModules["icons"] = function()
 --[[
     TempleEx Icons - Google Material Symbols (Apache 2.0)
-    Rendered as Roblox VectorGraphic (native SVG) so icons are crisp, recolorable
-    and fully offline (no asset uploads). Falls back to a TextLabel glyph when
-    VectorGraphic is unavailable on the client/executor.
+    Resolution order per icon:
+      1. Raster override (rbxassetid) from Icons.overrides[name] or config
+         `icons.assets.<name>` -> ImageLabel (true Material from uploaded PNGs,
+         recolorable via ImageColor3). Works on every executor.
+      2. VectorGraphic (native SVG) -> crisp, offline, no uploads. Only on
+         clients that actually support VectorGraphic.
+      3. TextLabel emoji glyph -> guaranteed-visible fallback.
 ]]
 
+local Config = TempleExRequire("config")
+
 local Icons = {}
+
+-- name -> "rbxassetid://..." (or "rbxasset://" / getcustomasset URL). Populated
+-- by config `icons.assets` or at runtime via TempleEx.Icons.overrides.
+Icons.overrides = {}
 
 -- 24x24 viewBox path data (Material Design icons, Google, Apache 2.0)
 Icons.paths = {
@@ -2956,15 +2966,16 @@ Icons.paths = {
 }
 
 -- Text fallback glyphs (used only if VectorGraphic is unavailable).
--- Monochrome Unicode symbols that Roblox's fonts actually render (color emoji
--- often draw as blank boxes in-game).
+-- These are the emoji that render on Roblox clients (verified working in the
+-- original dock); exotic monochrome geometric symbols are missing glyphs in
+-- many Roblox fonts and draw as blank boxes, so we avoid them here.
 Icons.fallback = {
-    close = "✕", minimize = "–", maximize = "□", restore = "⊡",
-    flight = "✈", directions_run = "➤", visibility = "◉", block = "⊘",
-    arrow_upward = "↑", wb_sunny = "☀", center_focus = "◎", photo_camera = "▣",
-    palette = "◐", auto_awesome = "✦", code = "‹›", settings = "⚙", search = "⌕",
-    home = "⌂", play_arrow = "▶", check = "✓", add = "+", delete = "⌫",
-    folder = "▤", refresh = "↻", expand_more = "▾", chevron_right = "›",
+    close = "✕", minimize = "–", maximize = "□", restore = "❐",
+    flight = "✈", directions_run = "🏃", visibility = "👁", block = "👻",
+    arrow_upward = "⤒", wb_sunny = "☀", center_focus = "🎯", photo_camera = "🎥",
+    palette = "🎨", auto_awesome = "✨", code = "📜", settings = "⚙", search = "🔍",
+    home = "⌂", play_arrow = "▶", check = "✓", add = "+", delete = "🗑",
+    folder = "📁", refresh = "↻", expand_more = "▾", chevron_right = "›",
 }
 
 local function colorToHex(c)
@@ -2985,10 +2996,30 @@ local function buildSvg(name, hex)
 end
 
 -- Icons.new(name, parent, size, color3) -> instance, setColorFn(newColor3)
--- Prefers VectorGraphic (crisp SVG). Falls back to a TextLabel glyph.
 function Icons.new(name, parent, size, color3)
     size = size or 24
     color3 = color3 or Color3.new(1, 1, 1)
+
+    -- (0) Raster override: true Material from an uploaded PNG asset.
+    local assetId = Icons.overrides[name]
+    if not assetId then
+        local ok, cfg = pcall(Config.get, "icons.assets." .. name)
+        if ok then assetId = cfg end
+    end
+    if type(assetId) == "string" and assetId ~= "" then
+        local img = Instance.new("ImageLabel")
+        img.Name = "Icon_" .. name
+        img.BackgroundTransparency = 1
+        img.Image = assetId
+        img.ImageColor3 = color3
+        img.Size = UDim2.new(0, size, 0, size)
+        img.Position = UDim2.new(0.5, 0, 0.5, 0)
+        img.AnchorPoint = Vector2.new(0.5, 0.5)
+        img.ZIndex = (parent and parent.ZIndex or 1) + 1
+        img.Parent = parent
+        return img, function(c3) img.ImageColor3 = c3 end
+    end
+
     local hex = colorToHex(color3)
     local svg = buildSvg(name, hex)
 
@@ -4949,7 +4980,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.5"
+Git.currentVersion = "1.0.6"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -5767,7 +5798,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 5}
+TempleApi.version = {major = 1, minor = 0, patch = 6}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -7218,7 +7249,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 5}
+TempleEx.version = {major = 1, minor = 0, patch = 6}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)
@@ -7271,6 +7302,7 @@ local function init()
     TempleEx.AI = AI
     TempleEx.Api = TempleApi
     TempleEx.Assets = Assets
+    TempleEx.Icons = TempleExRequire("icons")
 
     _G.TempleEx = TempleEx
     _G.TempleApi = TempleApi
