@@ -949,7 +949,7 @@ function Shell.addDockPin(pinId)
         end
     end
 
-    -- Prefer a Material icon (VectorGraphic); fall back to the emoji glyph.
+    -- Render via Icons (rbxassetid image, or emoji glyph if no asset assigned).
     local iconName = PIN_ICON[pinId]
     if not iconName then
         local pin = Shell.dockPins[pinId]
