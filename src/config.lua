@@ -38,7 +38,7 @@ shell:
     hide_delay: 0.4
     icon_size: 40
     magnify: true
-    pins: ["fly", "esp", "speed", "themes", "ai", "scripts"]
+    pins: ["start"]
 
 scripts:
   autoload: true

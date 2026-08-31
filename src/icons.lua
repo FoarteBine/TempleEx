@@ -18,8 +18,12 @@ local Icons = {}
 -- `icons.assets` or at runtime via TempleEx.Icons.overrides.
 Icons.overrides = {}
 
+-- Built-in default: the Start Menu button uses a user-supplied Material asset.
+Icons.overrides.start = "rbxassetid://77014925817328"
+
 -- Material-symbol name -> emoji glyph (placeholder for icons with no asset).
 Icons.glyphs = {
+    start = "⊞",
     close = "✕", minimize = "–", maximize = "□", restore = "❐",
     flight = "✈", directions_run = "🏃", visibility = "👁", block = "👻",
     arrow_upward = "⤒", wb_sunny = "☀", center_focus = "🎯", photo_camera = "🎥",

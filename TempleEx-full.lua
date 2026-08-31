@@ -1257,7 +1257,7 @@ shell:
     hide_delay: 0.4
     icon_size: 40
     magnify: true
-    pins: ["fly", "esp", "speed", "themes", "ai", "scripts"]
+    pins: ["start"]
 
 scripts:
   autoload: true
@@ -2936,8 +2936,12 @@ local Icons = {}
 -- `icons.assets` or at runtime via TempleEx.Icons.overrides.
 Icons.overrides = {}
 
+-- Built-in default: the Start Menu button uses a user-supplied Material asset.
+Icons.overrides.start = "rbxassetid://77014925817328"
+
 -- Material-symbol name -> emoji glyph (placeholder for icons with no asset).
 Icons.glyphs = {
+    start = "⊞",
     close = "✕", minimize = "–", maximize = "□", restore = "❐",
     flight = "✈", directions_run = "🏃", visibility = "👁", block = "👻",
     arrow_upward = "⤒", wb_sunny = "☀", center_focus = "🎯", photo_camera = "🎥",
@@ -3272,8 +3276,9 @@ function Shell.registerWindow(window)
     -- Focus it
     Shell.focusWindow(id)
 
-    -- Create dock entry for this window
-    Shell.addDockWindow(id, window.title or "Window", window.icon)
+    -- NOTE: windows are NOT auto-added to the dock. The dock holds only the
+    -- Start button and user-pinned shortcuts. Open windows are listed in the
+    -- Start Menu instead.
 
     return id
 end
@@ -3763,6 +3768,12 @@ function Shell.initDock(config)
     config = config or {}
     if not config.enabled then return end
 
+    local pins = config.pins or Config.get("shell.dock.pins") or { "start" }
+    -- The Start Menu button is always present and first.
+    local hasStart = false
+    for _, p in ipairs(pins) do if p == "start" then hasStart = true end end
+    if not hasStart then table.insert(pins, 1, "start") end
+
     Shell.dockConfig = {
         position = config.position or "bottom",
         reveal = config.reveal or "hover",
@@ -3770,7 +3781,7 @@ function Shell.initDock(config)
         hideDelay = config.hide_delay or 0.4,
         iconSize = config.icon_size or 40,
         magnify = config.magnify ~= false,
-        pins = config.pins or {"fly", "esp", "speed", "themes", "ai", "scripts"}
+        pins = pins
     }
 
     local iconSize = Shell.dockConfig.iconSize
@@ -3878,78 +3889,27 @@ end
 function Shell.addDockPin(pinId)
     if not Shell.dock then return end
 
-    local icon, tooltip, action, isActiveFn
+    local icon, tooltip, action, isActiveFn, iconName
 
-    if pinId == "fly" then
-        icon = "✈"
-        tooltip = "Fly"
-        action = function() Core.toggle("fly") end
-        isActiveFn = function() return Core.isEnabled("fly") end
-    elseif pinId == "speed" then
-        icon = "🏃"
-        tooltip = "Speed"
-        action = function() Core.toggle("speed") end
-        isActiveFn = function() return Core.isEnabled("speed") end
-    elseif pinId == "esp" then
-        icon = "👁"
-        tooltip = "ESP"
-        action = function() Core.toggle("esp") end
-        isActiveFn = function() return Core.isEnabled("esp") end
-    elseif pinId == "noclip" then
-        icon = "👻"
-        tooltip = "Noclip"
-        action = function() Core.toggle("noclip") end
-        isActiveFn = function() return Core.isEnabled("noclip") end
-    elseif pinId == "infjump" then
-        icon = "🦘"
-        tooltip = "Inf Jump"
-        action = function() Core.toggle("infjump") end
-        isActiveFn = function() return Core.isEnabled("infjump") end
-    elseif pinId == "fullbright" then
-        icon = "☀"
-        tooltip = "Fullbright"
-        action = function() Core.toggle("fullbright") end
-        isActiveFn = function() return Core.isEnabled("fullbright") end
-    elseif pinId == "hitbox" then
-        icon = "🎯"
-        tooltip = "Hitbox"
-        action = function() Core.toggle("hitbox") end
-        isActiveFn = function() return Core.isEnabled("hitbox") end
-    elseif pinId == "freecam" then
-        icon = "🎥"
-        tooltip = "Freecam"
-        action = function() Core.toggle("freecam") end
-        isActiveFn = function() return Core.isEnabled("freecam") end
-    elseif pinId == "themes" then
-        icon = "🎨"
-        tooltip = "Themes"
-        action = function() Shell.openThemePicker() end
-    elseif pinId == "ai" then
-        icon = "✨"
-        tooltip = "AI Themes"
-        action = function() Shell.openAIThemes() end
-    elseif pinId == "scripts" then
-        icon = "📜"
-        tooltip = "Scripts"
-        action = function() Shell.openScriptHub() end
+    local mod = Shell.resolveModule(pinId)
+    if mod then
+        icon = mod.glyph
+        tooltip = mod.title
+        action = mod.action
+        isActiveFn = mod.isActiveFn
+        iconName = mod.iconName
     else
-        -- Custom pin from API
+        -- Custom pin registered via Shell.DockPin(def)
         local pin = Shell.dockPins[pinId]
         if pin then
             icon = pin.icon
             tooltip = pin.tooltip
             action = pin.action
             isActiveFn = pin.isActive
+            iconName = pin.iconName
         else
             return
         end
-    end
-
-    -- Render via Icons (rbxassetid image, or emoji glyph if no asset assigned).
-    local iconName = PIN_ICON[pinId]
-    if not iconName then
-        local pin = Shell.dockPins[pinId]
-        iconName = pin and pin.iconName
     end
 
     local btn = createInstance("TextButton", {
@@ -4031,11 +3991,10 @@ function Shell.addDockPin(pinId)
         end
     end)
 
-    -- Right click = popover (simplified)
+    -- Right click = unpin this shortcut (Start button is permanent).
     btn.MouseButton2Click:Connect(function()
-        if isActiveFn and isActiveFn() then
-            -- Show param popover
-            Shell.showPinPopover(pinId, btn)
+        if pinId ~= "start" then
+            Shell.unpinModule(pinId)
         end
     end)
 
@@ -4133,6 +4092,353 @@ function Shell.DockUnpin(pinId)
         pin.button:Destroy()
     end
     Shell.dockPins[pinId] = nil
+end
+
+-- ============================================================
+-- MODULE REGISTRY + START MENU + DOCK SHORTCUTS
+-- ============================================================
+
+-- Panel pseudo-modules (open a window rather than toggle a Core function).
+Shell.panelModules = {
+    themes  = { title = "Themes",    iconName = "palette",      glyph = "🎨", open = function() Shell.openThemePicker() end },
+    ai      = { title = "AI Themes", iconName = "auto_awesome", glyph = "✨", open = function() Shell.openAIThemes() end },
+    scripts = { title = "Scripts",   iconName = "code",         glyph = "📜", open = function() Shell.openScriptHub() end },
+}
+
+-- Resolve any dock/start id to a uniform module descriptor, or nil.
+function Shell.resolveModule(id)
+    if id == "start" then
+        return { id = "start", title = "Start", iconName = "start", glyph = "⊞",
+                 kind = "start", action = function() Shell.toggleStartMenu() end }
+    end
+    local panel = Shell.panelModules[id]
+    if panel then
+        return { id = id, title = panel.title, iconName = panel.iconName, glyph = panel.glyph,
+                 kind = "panel", action = panel.open }
+    end
+    local def = Core.getModule(id)
+    if def then
+        return {
+            id = id, title = def.title or id, glyph = def.icon, iconName = PIN_ICON[id],
+            kind = "core", category = def.category,
+            action = function() Core.toggle(id) end,
+            isActiveFn = function() return Core.isEnabled(id) end,
+        }
+    end
+    return nil
+end
+
+-- ---- Dock shortcut pin/unpin with persistence ----------------
+function Shell.pinModule(id)
+    if not Shell.dockConfig then return end
+    if not Shell.resolveModule(id) then return end   -- only real modules are pinnable
+    for _, p in ipairs(Shell.dockConfig.pins) do
+        if p == id then return end                    -- already pinned
+    end
+    table.insert(Shell.dockConfig.pins, id)
+    Shell.addDockPin(id)
+    Shell.saveDockPins()
+end
+
+function Shell.unpinModule(id)
+    if id == "start" then return end
+    Shell.DockUnpin(id)
+    if Shell.dockConfig then
+        for i, p in ipairs(Shell.dockConfig.pins) do
+            if p == id then table.remove(Shell.dockConfig.pins, i); break end
+        end
+    end
+    Shell.saveDockPins()
+end
+
+function Shell.saveDockPins()
+    if not Shell.dockConfig then return end
+    pcall(Config.set, "shell.dock.pins", Shell.dockConfig.pins)
+end
+
+-- ---- Drag & drop helpers -------------------------------------
+local function isOverDock(mpos)
+    if not Shell.dock or not Shell.dock.Visible then return false end
+    local p, s = Shell.dock.AbsolutePosition, Shell.dock.AbsoluteSize
+    return mpos.X >= p.X and mpos.X <= p.X + s.X and mpos.Y >= p.Y and mpos.Y <= p.Y + s.Y
+end
+
+local function makeDragGhost(iconName, id)
+    local g = createInstance("Frame", {
+        Name = "DragGhost", Size = UDim2.new(0, 46, 0, 46),
+        BackgroundColor3 = tokens.elementBg, BackgroundTransparency = 0.15,
+        AnchorPoint = Vector2.new(0.5, 0.5), BorderSizePixel = 0, ZIndex = 1000
+    })
+    roundCorners(g, 10)
+    addStroke(g, tokens.accent, 2)
+    Icons.new(iconName or id, g, 28, tokens.dockIcon)
+    g.Parent = Shell.screenGui
+    return g
+end
+
+-- Attach click-to-open + drag-to-dock behaviour to a Start Menu row.
+function Shell._makeRowDraggable(btn, id, onClick, canDrag)
+    if not canDrag then
+        btn.MouseButton1Click:Connect(function() if onClick then onClick() end end)
+        return
+    end
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        local startPos = input.Position
+        local dragging, ghost, moveConn, endConn
+        Shell.showDock()
+        moveConn = UserInputService.InputChanged:Connect(function(m)
+            if m.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if not dragging and (m.Position - startPos).Magnitude > 8 then
+                dragging = true
+                local mod = Shell.resolveModule(id)
+                ghost = makeDragGhost(mod and mod.iconName, id)
+            end
+            if dragging and ghost then
+                ghost.Position = UDim2.new(0, m.X, 0, m.Y)
+            end
+        end)
+        endConn = UserInputService.InputEnded:Connect(function(m)
+            if m.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+            moveConn:Disconnect(); endConn:Disconnect()
+            if dragging then
+                if ghost then
+                    if isOverDock(m.Position) then Shell.pinModule(id) end
+                    ghost:Destroy()
+                end
+            else
+                if onClick then onClick() end
+            end
+            dragging = false
+        end)
+    end)
+end
+
+-- ---- Open a module in its own window -------------------------
+function Shell.openModuleWindow(id)
+    local mod = Shell.resolveModule(id)
+    if not mod then return end
+    Shell._moduleWindows = Shell._moduleWindows or {}
+    local ex = Shell._moduleWindows[id]
+    if ex and Shell.windows[ex.id] then
+        if Shell.minimizedWindows[ex.id] then Shell.restoreWindow(ex.id) end
+        Shell.focusWindow(ex.id)
+        return ex
+    end
+    local ok, TempleApi = pcall(function() return TempleExRequire("api") end)
+    if not ok or not TempleApi or not TempleApi.Window then
+        Log.warn("openModuleWindow: api unavailable")
+        return
+    end
+    local win = TempleApi.Window({ title = mod.title or id, size = { 380, 340 } })
+    Shell._moduleWindows[id] = win
+    win:OnClosed(function() Shell._moduleWindows[id] = nil end)
+    local tab = win:Tab("Main")
+    local sec = tab:Section(mod.title or id)
+    if mod.kind == "core" then
+        sec:Toggle({
+            title = "Enable",
+            default = Core.isEnabled(id),
+            callback = function(state)
+                if state then Core.enable(id) else Core.disable(id) end
+                Shell.updateDockIndicators()
+            end
+        })
+        local def = Core.getModule(id)
+        if def and def.params then
+            local names = {}
+            for pn in pairs(def.params) do table.insert(names, pn) end
+            table.sort(names)
+            for _, pn in ipairs(names) do
+                local pd = def.params[pn]
+                if pd.type == "number" then
+                    sec:Slider({
+                        title = pn, min = pd.min or 0, max = pd.max or 100, step = pd.step or 1,
+                        suffix = pd.suffix or "",
+                        default = Core.getParam(id, pn) or pd.default or 0,
+                        callback = function(v) Core.setParam(id, pn, v) end
+                    })
+                elseif pd.type == "string" and pd.options then
+                    sec:Dropdown({
+                        title = pn, values = pd.options,
+                        default = Core.getParam(id, pn) or pd.default,
+                        callback = function(v) Core.setParam(id, pn, v) end
+                    })
+                elseif pd.type == "boolean" then
+                    sec:Toggle({
+                        title = pn, default = Core.getParam(id, pn) or pd.default or false,
+                        callback = function(v) Core.setParam(id, pn, v) end
+                    })
+                end
+            end
+        end
+    else
+        sec:Label({ text = (mod.title or id) .. " panel" })
+        if mod.action then pcall(mod.action) end
+    end
+    return win
+end
+
+-- ---- Start Menu panel ----------------------------------------
+function Shell.toggleStartMenu()
+    if Shell._startMenu and Shell._startMenu.Visible then
+        Shell.closeStartMenu()
+    else
+        Shell.openStartMenu()
+    end
+end
+
+function Shell.openStartMenu()
+    if not Shell._startMenu then Shell._buildStartMenu() end
+    local sm = Shell._startMenu
+    if not sm then return end
+    local dh = (Shell.dock and Shell.dock.Size.Y.Offset) or 56
+    sm.Position = UDim2.new(0, 8, 1, -(dh + 8))
+    sm.Visible = true
+    Shell._populateStartMenu(Shell._startSearch and Shell._startSearch.Text or "")
+end
+
+function Shell.closeStartMenu()
+    if Shell._startMenu then Shell._startMenu.Visible = false end
+end
+
+function Shell._buildStartMenu()
+    local W, H = 340, 420
+    local sm = createInstance("Frame", {
+        Name = "StartMenu", Size = UDim2.new(0, W, 0, H),
+        Position = UDim2.new(0, 8, 1, -8), AnchorPoint = Vector2.new(0, 1),
+        BackgroundColor3 = tokens.bg, BorderSizePixel = 0, ZIndex = 200,
+        Visible = false, ClipsDescendants = false
+    })
+    roundCorners(sm, tokens.radius)
+    addStroke(sm, tokens.border)
+    addShadow(sm)
+
+    createInstance("TextLabel", {
+        Name = "Title", Size = UDim2.new(1, -24, 0, 30), Position = UDim2.new(0, 12, 0, 6),
+        BackgroundTransparency = 1, Text = "Start", TextColor3 = tokens.textPrimary,
+        TextSize = 15, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 201, Parent = sm
+    })
+
+    local search = createInstance("TextBox", {
+        Name = "Search", Size = UDim2.new(1, -24, 0, 30), Position = UDim2.new(0, 12, 0, 40),
+        BackgroundColor3 = tokens.elementBg, PlaceholderText = "Search modules...",
+        Text = "", TextColor3 = tokens.textPrimary, PlaceholderColor3 = tokens.textMuted,
+        TextSize = 13, Font = Enum.Font.Gotham, ClearTextOnFocus = false, ZIndex = 201
+    })
+    roundCorners(search, 8)
+    addStroke(search, tokens.border)
+    createInstance("UIPadding", { PaddingLeft = UDim.new(0, 10), Parent = search })
+    search.Parent = sm
+
+    local list = createInstance("ScrollingFrame", {
+        Name = "List", Size = UDim2.new(1, -24, 1, -86), Position = UDim2.new(0, 12, 0, 78),
+        BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+        ScrollBarImageColor3 = tokens.accent, ZIndex = 201
+    })
+    createInstance("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
+    list.Parent = sm
+
+    search:GetPropertyChangedSignal("Text"):Connect(function()
+        Shell._populateStartMenu(search.Text)
+    end)
+
+    -- Click outside (and not on the dock) closes the menu.
+    UserInputService.InputBegan:Connect(function(input)
+        if not (Shell._startMenu and Shell._startMenu.Visible) then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local p = input.Position
+        local sp, ss = Shell._startMenu.AbsolutePosition, Shell._startMenu.AbsoluteSize
+        local inSm = p.X >= sp.X and p.X <= sp.X + ss.X and p.Y >= sp.Y and p.Y <= sp.Y + ss.Y
+        if not inSm and not isOverDock(p) then Shell.closeStartMenu() end
+    end)
+
+    sm.Parent = Shell.screenGui
+    Shell._startMenu = sm
+    Shell._startSearch = search
+    Shell._startList = list
+end
+
+function Shell._populateStartMenu(filter)
+    if not Shell._startMenu then return end
+    filter = (filter or ""):lower()
+    local list = Shell._startList
+
+    for _, ch in ipairs(list:GetChildren()) do
+        if ch:IsA("GuiObject") and ch.Name ~= "UIListLayout" then ch:Destroy() end
+    end
+
+    local order = 0
+    local function addRow(id, title, glyph, iconName, onClick, active, canDrag)
+        if filter ~= "" and not (tostring(title):lower():find(filter, 1, true)) then return end
+        order = order + 1
+        local row = createInstance("TextButton", {
+            Name = "Row_" .. id, Size = UDim2.new(1, 0, 0, 40),
+            BackgroundColor3 = tokens.elementBg, BackgroundTransparency = 0.4,
+            Text = "", AutoButtonColor = false, ZIndex = 202, LayoutOrder = order
+        })
+        roundCorners(row, 8)
+        -- Left icon holder (Icons.new centers within it, so it sits at the left).
+        local holder = createInstance("Frame", {
+            Name = "IconHolder", Size = UDim2.new(0, 44, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1, ZIndex = 202
+        })
+        holder.Parent = row
+        Icons.new(iconName or id, holder, 22, active and tokens.accent or tokens.dockIcon)
+        createInstance("TextLabel", {
+            Name = "Lbl", Size = UDim2.new(1, -56, 1, 0), Position = UDim2.new(0, 44, 0, 0),
+            BackgroundTransparency = 1, Text = title, TextColor3 = tokens.textPrimary,
+            TextSize = 13, Font = Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 203, Parent = row
+        })
+        if active then
+            local dot = createInstance("Frame", {
+                Name = "Dot", Size = UDim2.new(0, 6, 0, 6), Position = UDim2.new(1, -16, 0.5, -3),
+                BackgroundColor3 = tokens.accent, BorderSizePixel = 0, ZIndex = 203
+            })
+            roundCorners(dot, 3)
+            dot.Parent = row
+        end
+        row.Parent = list
+        Shell._makeRowDraggable(row, id, onClick, canDrag)
+    end
+
+    -- Core modules (sorted by category, then title)
+    local mods = Core.listModules()
+    table.sort(mods, function(a, b)
+        local ca, cb = a.category or "", b.category or ""
+        if ca ~= cb then return ca < cb end
+        return (a.title or "") < (b.title or "")
+    end)
+    for _, m in ipairs(mods) do
+        addRow(m.id, m.title or m.id, m.icon, PIN_ICON[m.id],
+            function() Shell.openModuleWindow(m.id) end, m.enabled, true)
+    end
+
+    -- Panels
+    local panelIds = {}
+    for id in pairs(Shell.panelModules) do table.insert(panelIds, id) end
+    table.sort(panelIds)
+    for _, id in ipairs(panelIds) do
+        local panel = Shell.panelModules[id]
+        addRow(id, panel.title, panel.glyph, panel.iconName,
+            function() Shell.openModuleWindow(id) end, false, true)
+    end
+
+    -- Currently open windows (focus on click; not pinnable)
+    local winIds = {}
+    for wid in pairs(Shell.windows) do table.insert(winIds, wid) end
+    table.sort(winIds)
+    for _, wid in ipairs(winIds) do
+        local win = Shell.windows[wid]
+        if win then
+            addRow("win_" .. wid, win.title or ("Window " .. wid), nil, nil, function()
+                if Shell.minimizedWindows[wid] then Shell.restoreWindow(wid) else Shell.focusWindow(wid) end
+            end, Shell.focusedWindow == wid, false)
+        end
+    end
 end
 
 -- ============================================================
@@ -4892,7 +5198,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.7"
+Git.currentVersion = "1.0.8"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -5710,7 +6016,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 7}
+TempleApi.version = {major = 1, minor = 0, patch = 8}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -7161,7 +7467,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 7}
+TempleEx.version = {major = 1, minor = 0, patch = 8}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)
