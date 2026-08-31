@@ -917,6 +917,7 @@ function Shell.initDock(config)
         revealArea.MouseLeave:Connect(onLeave)
         Shell.dock.MouseEnter:Connect(onEnter)
         Shell.dock.MouseLeave:Connect(onLeave)
+        Shell._dockLeave = onLeave
     end
 end
 
@@ -929,6 +930,8 @@ end
 
 function Shell.hideDock()
     if not Shell.dock then return end
+    -- Keep the dock pinned while the Start Menu is open.
+    if Shell._startMenu and Shell._startMenu.Visible then return end
     Shell.dockVisible = false
     local off = Shell.dock.Size.Y.Offset + 10
     tween(Shell.dock, {Position = UDim2.new(0.5, 0, 1, off)}, 0.2)
@@ -1232,6 +1235,17 @@ local function isOverDock(mpos)
     return mpos.X >= p.X and mpos.X <= p.X + s.X and mpos.Y >= p.Y and mpos.Y <= p.Y + s.Y
 end
 
+-- Visual feedback: glow the dock when a shortcut is being dragged over it.
+local function setDockHighlight(on)
+    if not Shell.dock then return end
+    local stroke = Shell.dock:FindFirstChild("UIStroke")
+    if stroke then
+        stroke.Color = on and tokens.accent or tokens.border
+        stroke.Thickness = on and 2.5 or 1
+        stroke.Transparency = on and 0 or 0.5
+    end
+end
+
 local function makeDragGhost(iconName, id)
     local g = createInstance("Frame", {
         Name = "DragGhost", Size = UDim2.new(0, 46, 0, 46),
@@ -1254,7 +1268,7 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         local startPos = input.Position
-        local dragging, ghost, moveConn, endConn
+        local dragging, ghost, moveConn, endConn, overDock
         Shell.showDock()
         moveConn = UserInputService.InputChanged:Connect(function(m)
             if m.UserInputType ~= Enum.UserInputType.MouseMovement then return end
@@ -1265,11 +1279,20 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
             end
             if dragging and ghost then
                 ghost.Position = UDim2.new(0, m.X, 0, m.Y)
+                local nowOver = isOverDock(m.Position)
+                if nowOver ~= overDock then
+                    overDock = nowOver
+                    setDockHighlight(nowOver)
+                    ghost.Size = nowOver and UDim2.new(0, 56, 0, 56) or UDim2.new(0, 46, 0, 46)
+                    local gs = ghost:FindFirstChild("UIStroke")
+                    if gs then gs.Transparency = nowOver and 0 or 0.15 end
+                end
             end
         end)
         endConn = UserInputService.InputEnded:Connect(function(m)
             if m.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
             moveConn:Disconnect(); endConn:Disconnect()
+            setDockHighlight(false)
             if dragging then
                 if ghost then
                     if isOverDock(m.Position) then Shell.pinModule(id) end
@@ -1279,6 +1302,7 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
                 if onClick then onClick() end
             end
             dragging = false
+            overDock = false
         end)
     end)
 end
@@ -1376,6 +1400,115 @@ end
 
 function Shell.closeStartMenu()
     if Shell._startMenu then Shell._startMenu.Visible = false end
+    -- Menu closed: let the dock resume auto-hide if the cursor is off it.
+    if Shell._dockLeave then Shell._dockLeave() end
+end
+
+-- Full unload: stop modules, disconnect everything, remove all UI.
+function Shell.shutdown()
+    pcall(function()
+        for id in pairs(Core.active) do
+            if Core.active[id] then Core.disable(id) end
+        end
+    end)
+    pcall(function()
+        for _, c in pairs(Core.connections) do
+            if typeof(c) == "RBXScriptConnection" then
+                c:Disconnect()
+            elseif type(c) == "table" then
+                for _, cc in ipairs(c) do
+                    if typeof(cc) == "RBXScriptConnection" then cc:Disconnect() end
+                end
+            end
+        end
+    end)
+    if Shell._shutdownGui then pcall(function() Shell._shutdownGui:Destroy() end) end
+    if Shell.screenGui then pcall(function() Shell.screenGui:Destroy() end) end
+    Shell._startMenu = nil
+    Shell._shutdownGui = nil
+end
+
+function Shell.showShutdownScreen()
+    if Shell._shutdownGui then return end
+    Shell.closeStartMenu()
+
+    local sg = createInstance("ScreenGui", {
+        Name = "TempleEx_Shutdown", ResetOnSpawn = false,
+        DisplayOrder = 10000, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true, Parent = Executor.gethui()
+    })
+    Shell._shutdownGui = sg
+
+    local fade = createInstance("Frame", {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1
+    })
+    fade.Parent = sg
+
+    local panel = createInstance("Frame", {
+        Name = "Confirm", Size = UDim2.new(0, 360, 0, 150),
+        Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = tokens.bg, BorderSizePixel = 0, Visible = false, ZIndex = 2
+    })
+    roundCorners(panel, 10)
+    addStroke(panel, tokens.border)
+    addShadow(panel)
+    panel.Parent = sg
+
+    createInstance("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 44), Position = UDim2.new(0, 12, 0, 14),
+        BackgroundTransparency = 1, Text = "Are you sure you want to turn off TempleEx?",
+        TextColor3 = tokens.textPrimary, TextSize = 15, Font = Enum.Font.GothamMedium,
+        TextWrapped = true, ZIndex = 3, Parent = panel
+    })
+
+    local btnOff = createInstance("TextButton", {
+        Size = UDim2.new(0.5, -18, 0, 36), Position = UDim2.new(0, 12, 1, -48),
+        BackgroundColor3 = Color3.fromRGB(180, 40, 40), Text = "Turn Off",
+        TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 14,
+        AutoButtonColor = true, ZIndex = 3
+    })
+    roundCorners(btnOff, 8)
+    btnOff.Parent = panel
+
+    local btnCancel = createInstance("TextButton", {
+        Size = UDim2.new(0.5, -18, 0, 36), Position = UDim2.new(0.5, 6, 1, -48),
+        BackgroundColor3 = tokens.elementBg, Text = "Cancel",
+        TextColor3 = tokens.textPrimary, Font = Enum.Font.GothamMedium, TextSize = 14,
+        AutoButtonColor = true, ZIndex = 3
+    })
+    roundCorners(btnCancel, 8)
+    btnCancel.Parent = panel
+
+    -- Sequence: the screen goes dark, then the choice appears.
+    local t = tween(fade, { BackgroundTransparency = 0 }, 0.9)
+    if t and t.Completed then
+        t.Completed:Connect(function() panel.Visible = true end)
+    else
+        panel.Visible = true
+    end
+
+    btnCancel.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        local t2 = tween(fade, { BackgroundTransparency = 1 }, 0.6)
+        local function done()
+            if sg then pcall(function() sg:Destroy() end) end
+            Shell._shutdownGui = nil
+        end
+        if t2 and t2.Completed then t2.Completed:Connect(done) else done() end
+    end)
+
+    btnOff.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        createInstance("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0.5, -15),
+            BackgroundTransparency = 1, Text = "Turning off...",
+            TextColor3 = Color3.fromRGB(200, 200, 200), TextSize = 18,
+            Font = Enum.Font.GothamMedium, ZIndex = 3, Parent = sg
+        })
+        task.wait(0.8)
+        Shell.shutdown()
+    end)
 end
 
 function Shell._buildStartMenu()
@@ -1409,12 +1542,32 @@ function Shell._buildStartMenu()
     search.Parent = sm
 
     local list = createInstance("ScrollingFrame", {
-        Name = "List", Size = UDim2.new(1, -24, 1, -86), Position = UDim2.new(0, 12, 0, 78),
+        Name = "List", Size = UDim2.new(1, -24, 1, -126), Position = UDim2.new(0, 12, 0, 78),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
         ScrollBarImageColor3 = tokens.accent, ZIndex = 201
     })
     createInstance("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
     list.Parent = sm
+
+    -- Footer with a power / shutdown button (Windows-XP style turn off).
+    local footer = createInstance("Frame", {
+        Name = "Footer", Size = UDim2.new(1, -24, 0, 38), Position = UDim2.new(0, 12, 1, -46),
+        BackgroundTransparency = 1, ZIndex = 201, Parent = sm
+    })
+    createInstance("Frame", {
+        Name = "FooterLine", Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = tokens.border, BorderSizePixel = 0, ZIndex = 201, Parent = footer
+    })
+    local powerBtn = createInstance("ImageButton", {
+        Name = "PowerButton", Size = UDim2.new(0, 32, 0, 32),
+        Position = UDim2.new(1, 0, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1, Image = "rbxassetid://97248123880891",
+        ImageColor3 = tokens.textPrimary, AutoButtonColor = true, ZIndex = 202
+    })
+    roundCorners(powerBtn, 8)
+    powerBtn.MouseButton1Click:Connect(function() Shell.showShutdownScreen() end)
+    powerBtn.Parent = footer
+    Shell._powerBtn = powerBtn
 
     search:GetPropertyChangedSignal("Text"):Connect(function()
         Shell._populateStartMenu(search.Text)
@@ -1819,7 +1972,92 @@ function Shell.openThemePicker()
 end
 
 function Shell.openAIThemes()
-    -- TODO: Open AI themes panel
+    if Shell._aiStudioWin and Shell.windows[Shell._aiStudioWin.id] then
+        Shell.focusWindow(Shell._aiStudioWin.id)
+        return
+    end
+    local ok, TempleApi = pcall(function() return require(script.Parent.api) end)
+    if not ok or not TempleApi then return end
+    local AI = require(script.Parent.ai)
+
+    local win = TempleApi.Window({ title = "AI Theme Studio", size = { 400, 480 } })
+    Shell._aiStudioWin = win
+    local prevTheme = ThemeEngine.currentTheme
+    local pendingSlug = nil
+
+    win:OnClosed(function()
+        -- Leaving without keeping discards the preview.
+        if pendingSlug then
+            AI.deleteTheme(pendingSlug)
+            if prevTheme then pcall(function() ThemeEngine.setTheme(prevTheme) end) end
+            pendingSlug = nil
+        end
+        Shell._aiStudioWin = nil
+    end)
+
+    local tab = win:Tab("Studio")
+    local sec = tab:Section("Provider & Key")
+
+    local providerNames = {}
+    for k in pairs(AI.providers) do providerNames[#providerNames + 1] = k end
+    table.sort(providerNames)
+
+    sec:Dropdown({
+        title = "Provider", values = providerNames,
+        default = Config.get("ai.provider") or "openai",
+        callback = function(v) pcall(Config.set, "ai.provider", v) end
+    })
+    sec:Input({
+        title = "API Key", placeholder = "sk-...", default = Config.get("ai.api_key") or "",
+        callback = function(t) pcall(Config.set, "ai.api_key", t) end
+    })
+    local modelInput = sec:Input({
+        title = "Model", placeholder = "empty = provider default", default = Config.get("ai.model") or "",
+        callback = function(t) pcall(Config.set, "ai.model", t) end
+    })
+
+    local genSec = tab:Section("Generate")
+    local promptInput = genSec:Input({ title = "Prompt", placeholder = "e.g. cyberpunk neon dark", default = "" })
+    local status = genSec:Label({ text = "Enter a prompt, then Generate. The result previews live." })
+
+    genSec:Button({ title = "Generate Theme", callback = function()
+        local prompt = promptInput and promptInput:Get() or ""
+        if prompt == "" then status:Set("Prompt is empty.") return end
+        status:Set("Generating... (a few seconds)")
+        task.spawn(function()
+            local model = modelInput and modelInput:Get()
+            local theme, yaml, err = AI.buildTheme(prompt, { model = (model and model ~= "") and model or nil })
+            if not theme then
+                status:Set("Failed: " .. tostring(err))
+                return
+            end
+            pendingSlug = theme.slug
+            AI.saveTheme(theme.slug, yaml)
+            pcall(function() ThemeEngine.setTheme(theme.slug) end)
+            status:Set("Previewing '" .. tostring(theme.name) .. "'. Keep or Delete.")
+        end)
+    end })
+
+    genSec:Button({ title = "Keep Theme", callback = function()
+        if pendingSlug then
+            pcall(Config.set, "theme.active", pendingSlug)
+            status:Set("Saved and set as active theme.")
+            pendingSlug = nil
+        else
+            status:Set("Nothing to keep yet.")
+        end
+    end })
+
+    genSec:Button({ title = "Delete Preview", danger = true, callback = function()
+        if pendingSlug then
+            AI.deleteTheme(pendingSlug)
+            if prevTheme then pcall(function() ThemeEngine.setTheme(prevTheme) end) end
+            status:Set("Preview deleted.")
+            pendingSlug = nil
+        else
+            status:Set("Nothing to delete.")
+        end
+    end })
 end
 
 function Shell.openScriptHub()

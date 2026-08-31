@@ -59,6 +59,65 @@ TempleApi._initialized = false
 TempleApi._scriptContext = nil
 
 -- ============================================================
+-- Button keybind registry: any Button widget can be assigned a keyboard
+-- shortcut that fires its callback. Bindings persist to config under
+-- keybinds.<id>. Right-click the bind chip to clear a bind.
+-- ============================================================
+TempleApi._buttonBinds = {}
+TempleApi._activeBindCapture = nil
+
+local function sanitizeBindId(raw)
+    return tostring(raw):gsub("[^%w_%-]", "_")
+end
+
+local function fireButtonBinds(keyCode)
+    for _, b in pairs(TempleApi._buttonBinds) do
+        if b.keyCode == keyCode then pcall(b.callback) end
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if TempleApi._activeBindCapture then
+            local cap = TempleApi._activeBindCapture
+            TempleApi._activeBindCapture = nil
+            cap(input.KeyCode)
+            return
+        end
+        if not processed then fireButtonBinds(input.KeyCode) end
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 and TempleApi._activeBindCapture then
+        local cap = TempleApi._activeBindCapture
+        TempleApi._activeBindCapture = nil
+        cap(nil)
+    end
+end)
+
+function TempleApi.bindButton(id, keyCode, callback)
+    if not id then return end
+    id = sanitizeBindId(id)
+    TempleApi._buttonBinds[id] = { keyCode = keyCode, callback = callback }
+    pcall(Config.set, "keybinds." .. id, keyCode and keyCode.Name or "None")
+end
+
+function TempleApi.unbindButton(id)
+    if not id then return end
+    id = sanitizeBindId(id)
+    TempleApi._buttonBinds[id] = nil
+    pcall(Config.set, "keybinds." .. id, "None")
+end
+
+function TempleApi.getButtonBind(id)
+    if not id then return nil end
+    id = sanitizeBindId(id)
+    local name = Config.get("keybinds." .. id)
+    if name and name ~= "None" then
+        local ok, kc = pcall(function() return Enum.KeyCode[name] end)
+        if ok and kc then return kc end
+    end
+    return nil
+end
+
+-- ============================================================
 -- INITIALIZATION
 -- ============================================================
 function TempleApi.init()
@@ -968,6 +1027,50 @@ createSection = function(self, title)
         btn.MouseButton1Click:Connect(function()
             if options.callback then pcall(options.callback) end
         end)
+
+        -- Optional keybind chip: assign a key to fire this button (persisted to
+        -- config). Click the chip then press a key; right-click the chip to clear.
+        local bindId = options.flag or options.keybindId or options.title
+        if bindId then
+            bindId = tostring(bindId):gsub("[^%w_%-]", "_")
+            local function runCb() if options.callback then pcall(options.callback) end end
+
+            local chip = Instance.new("TextButton")
+            chip.Name = "BindChip"
+            chip.Size = UDim2.new(0, 44, 0, 22)
+            chip.Position = UDim2.new(1, -6, 0.5, -11)
+            chip.AnchorPoint = Vector2.new(1, 0)
+            chip.BackgroundColor3 = ThemeEngine.getToken("keybind.bg")
+            chip.BorderSizePixel = 0
+            chip.TextColor3 = ThemeEngine.getToken("text.primary")
+            chip.TextSize = 11
+            chip.Font = Enum.Font.GothamMedium
+            chip.AutoButtonColor = true
+            chip.ZIndex = 53
+            chip.Parent = btn
+            local chipCorner = Instance.new("UICorner")
+            chipCorner.CornerRadius = UDim.new(0, 5)
+            chipCorner.Parent = chip
+
+            local function refresh()
+                local kc = TempleApi.getButtonBind(bindId)
+                chip.Text = kc and kc.Name or "bind"
+            end
+            local initKc = TempleApi.getButtonBind(bindId)
+            if initKc then
+                TempleApi._buttonBinds[bindId] = { keyCode = initKc, callback = runCb }
+            end
+            refresh()
+
+            chip.MouseButton1Click:Connect(function()
+                chip.Text = "..."
+                TempleApi._activeBindCapture = function(kc)
+                    if kc then TempleApi.bindButton(bindId, kc, runCb)
+                    else TempleApi.unbindButton(bindId) end
+                    refresh()
+                end
+            end)
+        end
 
         return btn
     end

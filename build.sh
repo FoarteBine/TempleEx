@@ -6,7 +6,7 @@
 set -e
 
 # ── Single source of truth for the version ─────────────────────
-VERSION="1.2.1"
+VERSION="1.3.0"
 IFS='.' read -r VMAJ VMIN VPAT <<< "$VERSION"
 
 # ── Step 1: generate src/assets.lua ────────────────────────────

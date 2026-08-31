@@ -38,47 +38,93 @@ AI.prompts = {
 }
 
 -- ============================================================
+-- PROVIDER PRESETS
+-- ============================================================
+AI.providers = {
+    anthropic  = { baseUrl = "https://api.anthropic.com/v1", style = "anthropic", model = "claude-3-5-sonnet-latest" },
+    claude     = { baseUrl = "https://api.anthropic.com/v1", style = "anthropic", model = "claude-3-5-sonnet-latest" },
+    openai     = { baseUrl = "https://api.openai.com/v1", style = "openai", model = "gpt-4o-mini" },
+    chatgpt    = { baseUrl = "https://api.openai.com/v1", style = "openai", model = "gpt-4o-mini" },
+    deepseek   = { baseUrl = "https://api.deepseek.com/v1", style = "openai", model = "deepseek-chat" },
+    qwen       = { baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", style = "openai", model = "qwen-plus" },
+    nvidia     = { baseUrl = "https://integrate.api.nvidia.com/v1", style = "openai", model = "meta/llama-3.1-70b-instruct" },
+    openrouter = { baseUrl = "https://openrouter.ai/api/v1", style = "openai", model = "openai/gpt-4o-mini" },
+    custom     = { baseUrl = nil, style = "openai", model = nil },
+}
+
+local function extractContent(style, data)
+    if style == "anthropic" then
+        local c = data.content
+        if type(c) == "table" then
+            for _, part in ipairs(c) do
+                if part.type == "text" then return part.text end
+            end
+        end
+        return nil
+    end
+    local ok, txt = pcall(function() return data.choices[1].message.content end)
+    return ok and txt or nil
+end
+
+-- ============================================================
 -- HTTP REQUEST TO LLM
 -- ============================================================
 local function llmRequest(messages, options)
     options = options or {}
     local aiConfig = Config.get("ai") or {}
-    local provider = aiConfig.provider or "openai-compatible"
-    local baseUrl = aiConfig.base_url or "https://api.openai.com/v1"
-    local model = options.model or aiConfig.model or "gpt-4o-mini"
+    local provider = string.lower(aiConfig.provider or "openai")
+    local preset = AI.providers[provider] or AI.providers.openai
+    local style = preset.style
+    local baseUrl = aiConfig.base_url or preset.baseUrl
+    local model = options.model or aiConfig.model or preset.model or "gpt-4o-mini"
+    local apiKey = aiConfig.api_key
     local temperature = options.temperature or 0.7
     local maxTokens = options.max_tokens or 4000
 
-    local apiKey = nil
-    if aiConfig.api_key_env then
-        -- Try to get from executor env (not directly accessible, but some executors expose)
-        -- For now, user must set in temple.yaml or we skip
+    if not apiKey or apiKey == "" then
+        return { Success = false, Error = "No API key set. Open AI Themes and enter a key." }
+    end
+    if not baseUrl then
+        return { Success = false, Error = "No base URL for provider '" .. provider .. "'. Set one (custom)." }
     end
 
-    local headers = {
-        ["Content-Type"] = "application/json"
-    }
+    local headers = { ["Content-Type"] = "application/json" }
+    local url, body
 
-    if apiKey then
+    if style == "anthropic" then
+        headers["x-api-key"] = apiKey
+        headers["anthropic-version"] = "2023-06-01"
+        local system, msgs = "", {}
+        for _, m in ipairs(messages) do
+            if m.role == "system" then system = m.content
+            else table.insert(msgs, { role = m.role, content = m.content }) end
+        end
+        url = baseUrl .. "/messages"
+        body = { model = model, max_tokens = maxTokens, temperature = temperature, system = system, messages = msgs }
+    else
         headers["Authorization"] = "Bearer " .. apiKey
+        url = baseUrl .. "/chat/completions"
+        body = { model = model, messages = messages, temperature = temperature, max_tokens = maxTokens, stream = false }
     end
 
-    local body = {
-        model = model,
-        messages = messages,
-        temperature = temperature,
-        max_tokens = maxTokens,
-        stream = false
-    }
-
-    local url = baseUrl .. "/chat/completions"
     local res = Executor.http(url, {
         Method = "POST",
         Headers = headers,
         Body = HttpService:JSONEncode(body)
     })
 
-    return res
+    if res and res.Success and res.Body and res.Body ~= "" then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok and data then
+            local content = extractContent(style, data)
+            if content then
+                return { Success = true, Content = content }
+            end
+            return { Success = false, Error = "Unexpected response shape" }
+        end
+        return { Success = false, Error = "Bad JSON response" }
+    end
+    return { Success = false, Error = (res and (res.Error or ("HTTP " .. tostring(res.StatusCode)))) or "no response" }
 end
 
 -- ============================================================
@@ -97,33 +143,22 @@ end
 -- ============================================================
 -- THEME GENERATOR
 -- ============================================================
-function AI.generateTheme(prompt, options)
+function AI.buildTheme(prompt, options)
     options = options or {}
-    local model = options.model or Config.get("ai.agents.theme-gen.model") or "inherit"
-    local temperature = options.temperature or Config.get("ai.agents.theme-gen.temperature") or 0.9
+    local model = options.model or Config.get("ai.model") or "gpt-4o-mini"
+    local temperature = options.temperature or 0.9
 
-    if model == "inherit" then
-        model = Config.get("ai.model") or "gpt-4o-mini"
-    end
-
-    local key = cacheKey(prompt, model, "theme-gen")
-    if AI.cache[key] then
-        Log.info("Theme gen cache hit")
-        return AI.cache[key]
-    end
-
-    -- Get theme namer first
     local nameResult = AI.nameTheme(prompt)
     local slug = nameResult.slug
     local name = nameResult.name
     local tags = nameResult.tags
 
-    -- Build system prompt with schema
     local schemaPrompt = [[
 You are a TempleEx theme generator. Output ONLY valid YAML for a TempleEx theme v1.
-Required sections: temple_theme: 1, name, author, palette (10 colors), tokens (all 57 required roles), typography, geometry, effects, icons, layout.
-All token values MUST be palette references (e.g., "palette.accent"), never raw hex.
-WCAG AA contrast: text.primary vs window.bg >= 4.5:1, accent vs window.bg >= 3:1.
+Top-level keys: temple_theme: 1, name, author, palette (map of named colors as #RRGGBB), tokens (map of UI roles to a hex color or a "palette.<name>" reference).
+Define at least palette entries: bg, surface, text, muted, accent, border.
+Define at least tokens: window.bg, window.border, text.primary, text.muted, element.bg, toggle.track.on, dock.bg, dock.icon.
+Output ONLY the YAML. No markdown fences, no explanation.
 ]]
 
     local userPrompt = string.format([[
@@ -131,10 +166,7 @@ Create a theme: %s
 Name: %s
 Slug: %s
 Tags: %s
-Style: %s
-
-Output ONLY the YAML. No markdown, no explanation.
-]], prompt, name, slug, table.concat(tags, ", "), prompt)
+]], prompt, name, slug, table.concat(tags, ", "))
 
     local messages = {
         {role = "system", content = schemaPrompt},
@@ -146,46 +178,51 @@ Output ONLY the YAML. No markdown, no explanation.
     AI.activeRequest = nil
 
     if not res.Success then
-        return nil, "LLM request failed: " .. (res.Error or res.Body)
+        return nil, nil, "LLM request failed: " .. (res.Error or "unknown")
     end
 
-    local data = HttpService:JSONDecode(res.Body)
-    local content = data.choices[1].message.content
+    local content = res.Content
+    local yamlContent = content:match("```yaml%s*(.-)```") or content:match("```%s*(.-)```") or content
+    yamlContent = (yamlContent:gsub("^\n+", ""))
 
-    -- Extract YAML from potential markdown fence
-    local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
-
-    -- Validate via ThemeEngine
     local YAML = require(script.Parent.yaml)
     local theme, errors = YAML.parse(yamlContent)
     if errors and #errors > 0 then
-        return nil, "YAML parse errors: " .. table.concat(errors, "; ")
+        return nil, nil, "YAML parse errors: " .. table.concat(errors, "; ")
+    end
+    if not theme then
+        return nil, nil, "Could not parse theme"
     end
 
-    if not theme or theme.temple_theme ~= 1 then
-        return nil, "Invalid theme format"
-    end
-
-    -- Contrast check (simplified)
-    local contrastOk, contrastErr = AI.validateContrast(theme)
-    if not contrastOk then
-        return nil, "Contrast validation failed: " .. contrastErr
-    end
-
-    -- Cache and save
     theme.name = name
     theme.slug = slug
-    AI.cache[key] = theme
 
-    -- Save to themes folder
+    -- Contrast is advisory only; the user previews and decides.
+    local contrastOk, contrastErr = AI.validateContrast(theme)
+    if not contrastOk then
+        Log.warn("Theme contrast:", contrastErr)
+    end
+
+    return theme, yamlContent, nil
+end
+
+function AI.saveTheme(slug, yamlContent)
     local themesPath = Config.get("paths.themes") or "themes"
-    local fileName = slug .. ".yaml"
-    pcall(Executor.fs_write, themesPath .. "/" .. fileName, yamlContent)
-
-    -- Reload themes
+    pcall(Executor.fs_write, themesPath .. "/" .. slug .. ".yaml", yamlContent)
     ThemeEngine.loadAllThemes(themesPath)
+end
 
-    Log.info("Generated theme:", name, "(", slug .. ")")
+function AI.deleteTheme(slug)
+    local themesPath = Config.get("paths.themes") or "themes"
+    pcall(Executor.fs_delete, themesPath .. "/" .. slug .. ".yaml")
+    ThemeEngine.loadAllThemes(themesPath)
+end
+
+function AI.generateTheme(prompt, options)
+    local theme, yamlContent, err = AI.buildTheme(prompt, options)
+    if not theme then return nil, err end
+    AI.saveTheme(theme.slug, yamlContent)
+    Log.info("Generated theme:", theme.name, "(", theme.slug .. ")")
     return theme, yamlContent
 end
 
@@ -229,12 +266,12 @@ Return the complete modified theme YAML only.
     AI.activeRequest = nil
 
     if not res.Success then
-        return nil, "LLM request failed: " .. (res.Error or res.Body)
+        return nil, "LLM request failed: " .. (res.Error or "unknown")
     end
 
-    local data = HttpService:JSONDecode(res.Body)
-    local content = data.choices[1].message.content
-    local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
+    local content = res.Content
+    local yamlContent = content:match("```yaml%s*(.-)```") or content:match("```%s*(.-)```") or content
+    yamlContent = (yamlContent:gsub("^\n+", ""))
 
     local YAML = require(script.Parent.yaml)
     local theme, errors = YAML.parse(yamlContent)

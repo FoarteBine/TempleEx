@@ -2424,7 +2424,7 @@ Core.register({
     category = "Movement",
     keybind = "Q",
     params = {
-        multiplier = { type = "number", default = 2, min = 0.1, max = 10, suffix = "x" },
+        speed = { type = "number", default = 50, min = 0, max = 10000, suffix = " studs/s" },
         mode = { type = "string", default = "WalkSpeed", options = {"WalkSpeed", "Humanoid", "Velocity"} }
     },
     onEnable = function(params)
@@ -2432,23 +2432,27 @@ Core.register({
         if not humanoid then return false, "No humanoid" end
 
         originalWalkSpeed = humanoid.WalkSpeed
+        if speedConnection then speedConnection:Disconnect() speedConnection = nil end
 
         local mode = params.mode or "WalkSpeed"
-        local mult = params.multiplier or 2
 
-        if mode == "WalkSpeed" then
-            speedConnection = RunService.RenderStepped:Connect(function()
-                local hum = getHumanoid()
-                if hum then
-                    hum.WalkSpeed = originalWalkSpeed * mult
-                end
-            end)
-        elseif mode == "Velocity" then
+        if mode == "Velocity" then
             speedConnection = RunService.Heartbeat:Connect(function()
+                local p = Core.getParams("speed") or params
+                local spd = p.speed or 50
                 local root = getRootPart()
                 local hum = getHumanoid()
                 if root and hum and hum.MoveDirection.Magnitude > 0 then
-                    root.Velocity = hum.MoveDirection * (originalWalkSpeed * mult)
+                    root.Velocity = hum.MoveDirection * spd
+                end
+            end)
+        else
+            speedConnection = RunService.RenderStepped:Connect(function()
+                local p = Core.getParams("speed") or params
+                local spd = p.speed or 50
+                local hum = getHumanoid()
+                if hum then
+                    hum.WalkSpeed = spd
                 end
             end)
         end
@@ -2462,6 +2466,56 @@ Core.register({
     end,
     onParamChange = function(param, value)
         -- Applied in loop
+    end
+})
+
+-- ============================================================
+-- JUMP (JumpPower / JumpHeight)
+-- ============================================================
+local jumpPowerValue = 50
+local jumpHeightValue = 7
+local jumpCharConn = nil
+
+local function applyJump()
+    local hum = getHumanoid()
+    if hum then
+        hum.JumpPower = jumpPowerValue
+        hum.JumpHeight = jumpHeightValue
+    end
+end
+
+Core.register({
+    id = "jump",
+    title = "Jump",
+    icon = "🦘",
+    category = "Movement",
+    params = {
+        jumpPower = { type = "number", default = 50, min = 0, max = 1000 },
+        jumpHeight = { type = "number", default = 7, min = 0, max = 1000, suffix = " studs" },
+    },
+    onEnable = function(params)
+        jumpPowerValue = Core.getParam("jump", "jumpPower") or params.jumpPower or 50
+        jumpHeightValue = Core.getParam("jump", "jumpHeight") or params.jumpHeight or 7
+        applyJump()
+        jumpCharConn = LocalPlayer.CharacterAdded:Connect(function()
+            task.wait(0.3)
+            if Core.active.jump then applyJump() end
+        end)
+        return true
+    end,
+    onDisable = function()
+        if jumpCharConn then jumpCharConn:Disconnect(); jumpCharConn = nil end
+        local hum = getHumanoid()
+        if hum then hum.JumpPower = 50; hum.JumpHeight = 7.2 end
+    end,
+    onParamChange = function(param, value)
+        if param == "jumpPower" then jumpPowerValue = value
+        elseif param == "jumpHeight" then jumpHeightValue = value end
+        local hum = getHumanoid()
+        if hum and Core.active.jump then
+            if param == "jumpPower" then hum.JumpPower = value
+            elseif param == "jumpHeight" then hum.JumpHeight = value end
+        end
     end
 })
 
@@ -2850,6 +2904,7 @@ local freecamEnabled = false
 local freecamConnection = nil
 local freecamCFrame = CFrame.new()
 local freecamSpeed = 50
+local freecamLooking = false
 local originalCameraSubject = nil
 local originalCameraType = nil
 
@@ -2893,22 +2948,32 @@ Core.register({
             Camera.CFrame = freecamCFrame
         end)
 
-        -- Mouse look
+        -- Mouse look: only while the right mouse button is held, so the cursor
+        -- stays free (not locked) and can click the UI.
+        freecamLooking = false
         Core.connections.freecamMouse = UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement and freecamEnabled then
+            if input.UserInputType == Enum.UserInputType.MouseMovement and freecamEnabled and freecamLooking then
                 local delta = input.Delta
                 freecamCFrame = freecamCFrame * CFrame.Angles(0, -delta.X * 0.002, 0) * CFrame.Angles(-delta.Y * 0.002, 0, 0)
             end
         end)
-
-        -- Lock mouse
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        Core.connections.freecamLookBtn = UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then freecamLooking = true end
+        end)
+        Core.connections.freecamLookBtnEnd = UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then freecamLooking = false end
+        end)
     end,
     onDisable = function()
         freecamEnabled = false
+        freecamLooking = false
         if freecamConnection then freecamConnection:Disconnect() freecamConnection = nil end
         local conn = Core.connections.freecamMouse
         if conn then conn:Disconnect() Core.connections.freecamMouse = nil end
+        local lb = Core.connections.freecamLookBtn
+        if lb then lb:Disconnect() Core.connections.freecamLookBtn = nil end
+        local lbe = Core.connections.freecamLookBtnEnd
+        if lbe then lbe:Disconnect() Core.connections.freecamLookBtnEnd = nil end
 
         Camera.CameraType = originalCameraType or Enum.CameraType.Custom
         Camera.CameraSubject = originalCameraSubject or LocalPlayer.Character
@@ -4039,6 +4104,7 @@ function Shell.initDock(config)
         revealArea.MouseLeave:Connect(onLeave)
         Shell.dock.MouseEnter:Connect(onEnter)
         Shell.dock.MouseLeave:Connect(onLeave)
+        Shell._dockLeave = onLeave
     end
 end
 
@@ -4051,6 +4117,8 @@ end
 
 function Shell.hideDock()
     if not Shell.dock then return end
+    -- Keep the dock pinned while the Start Menu is open.
+    if Shell._startMenu and Shell._startMenu.Visible then return end
     Shell.dockVisible = false
     local off = Shell.dock.Size.Y.Offset + 10
     tween(Shell.dock, {Position = UDim2.new(0.5, 0, 1, off)}, 0.2)
@@ -4354,6 +4422,17 @@ local function isOverDock(mpos)
     return mpos.X >= p.X and mpos.X <= p.X + s.X and mpos.Y >= p.Y and mpos.Y <= p.Y + s.Y
 end
 
+-- Visual feedback: glow the dock when a shortcut is being dragged over it.
+local function setDockHighlight(on)
+    if not Shell.dock then return end
+    local stroke = Shell.dock:FindFirstChild("UIStroke")
+    if stroke then
+        stroke.Color = on and tokens.accent or tokens.border
+        stroke.Thickness = on and 2.5 or 1
+        stroke.Transparency = on and 0 or 0.5
+    end
+end
+
 local function makeDragGhost(iconName, id)
     local g = createInstance("Frame", {
         Name = "DragGhost", Size = UDim2.new(0, 46, 0, 46),
@@ -4376,7 +4455,7 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         local startPos = input.Position
-        local dragging, ghost, moveConn, endConn
+        local dragging, ghost, moveConn, endConn, overDock
         Shell.showDock()
         moveConn = UserInputService.InputChanged:Connect(function(m)
             if m.UserInputType ~= Enum.UserInputType.MouseMovement then return end
@@ -4387,11 +4466,20 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
             end
             if dragging and ghost then
                 ghost.Position = UDim2.new(0, m.X, 0, m.Y)
+                local nowOver = isOverDock(m.Position)
+                if nowOver ~= overDock then
+                    overDock = nowOver
+                    setDockHighlight(nowOver)
+                    ghost.Size = nowOver and UDim2.new(0, 56, 0, 56) or UDim2.new(0, 46, 0, 46)
+                    local gs = ghost:FindFirstChild("UIStroke")
+                    if gs then gs.Transparency = nowOver and 0 or 0.15 end
+                end
             end
         end)
         endConn = UserInputService.InputEnded:Connect(function(m)
             if m.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
             moveConn:Disconnect(); endConn:Disconnect()
+            setDockHighlight(false)
             if dragging then
                 if ghost then
                     if isOverDock(m.Position) then Shell.pinModule(id) end
@@ -4401,6 +4489,7 @@ function Shell._makeRowDraggable(btn, id, onClick, canDrag)
                 if onClick then onClick() end
             end
             dragging = false
+            overDock = false
         end)
     end)
 end
@@ -4498,6 +4587,115 @@ end
 
 function Shell.closeStartMenu()
     if Shell._startMenu then Shell._startMenu.Visible = false end
+    -- Menu closed: let the dock resume auto-hide if the cursor is off it.
+    if Shell._dockLeave then Shell._dockLeave() end
+end
+
+-- Full unload: stop modules, disconnect everything, remove all UI.
+function Shell.shutdown()
+    pcall(function()
+        for id in pairs(Core.active) do
+            if Core.active[id] then Core.disable(id) end
+        end
+    end)
+    pcall(function()
+        for _, c in pairs(Core.connections) do
+            if typeof(c) == "RBXScriptConnection" then
+                c:Disconnect()
+            elseif type(c) == "table" then
+                for _, cc in ipairs(c) do
+                    if typeof(cc) == "RBXScriptConnection" then cc:Disconnect() end
+                end
+            end
+        end
+    end)
+    if Shell._shutdownGui then pcall(function() Shell._shutdownGui:Destroy() end) end
+    if Shell.screenGui then pcall(function() Shell.screenGui:Destroy() end) end
+    Shell._startMenu = nil
+    Shell._shutdownGui = nil
+end
+
+function Shell.showShutdownScreen()
+    if Shell._shutdownGui then return end
+    Shell.closeStartMenu()
+
+    local sg = createInstance("ScreenGui", {
+        Name = "TempleEx_Shutdown", ResetOnSpawn = false,
+        DisplayOrder = 10000, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true, Parent = Executor.gethui()
+    })
+    Shell._shutdownGui = sg
+
+    local fade = createInstance("Frame", {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1
+    })
+    fade.Parent = sg
+
+    local panel = createInstance("Frame", {
+        Name = "Confirm", Size = UDim2.new(0, 360, 0, 150),
+        Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = tokens.bg, BorderSizePixel = 0, Visible = false, ZIndex = 2
+    })
+    roundCorners(panel, 10)
+    addStroke(panel, tokens.border)
+    addShadow(panel)
+    panel.Parent = sg
+
+    createInstance("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 44), Position = UDim2.new(0, 12, 0, 14),
+        BackgroundTransparency = 1, Text = "Are you sure you want to turn off TempleEx?",
+        TextColor3 = tokens.textPrimary, TextSize = 15, Font = Enum.Font.GothamMedium,
+        TextWrapped = true, ZIndex = 3, Parent = panel
+    })
+
+    local btnOff = createInstance("TextButton", {
+        Size = UDim2.new(0.5, -18, 0, 36), Position = UDim2.new(0, 12, 1, -48),
+        BackgroundColor3 = Color3.fromRGB(180, 40, 40), Text = "Turn Off",
+        TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 14,
+        AutoButtonColor = true, ZIndex = 3
+    })
+    roundCorners(btnOff, 8)
+    btnOff.Parent = panel
+
+    local btnCancel = createInstance("TextButton", {
+        Size = UDim2.new(0.5, -18, 0, 36), Position = UDim2.new(0.5, 6, 1, -48),
+        BackgroundColor3 = tokens.elementBg, Text = "Cancel",
+        TextColor3 = tokens.textPrimary, Font = Enum.Font.GothamMedium, TextSize = 14,
+        AutoButtonColor = true, ZIndex = 3
+    })
+    roundCorners(btnCancel, 8)
+    btnCancel.Parent = panel
+
+    -- Sequence: the screen goes dark, then the choice appears.
+    local t = tween(fade, { BackgroundTransparency = 0 }, 0.9)
+    if t and t.Completed then
+        t.Completed:Connect(function() panel.Visible = true end)
+    else
+        panel.Visible = true
+    end
+
+    btnCancel.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        local t2 = tween(fade, { BackgroundTransparency = 1 }, 0.6)
+        local function done()
+            if sg then pcall(function() sg:Destroy() end) end
+            Shell._shutdownGui = nil
+        end
+        if t2 and t2.Completed then t2.Completed:Connect(done) else done() end
+    end)
+
+    btnOff.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        createInstance("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0.5, -15),
+            BackgroundTransparency = 1, Text = "Turning off...",
+            TextColor3 = Color3.fromRGB(200, 200, 200), TextSize = 18,
+            Font = Enum.Font.GothamMedium, ZIndex = 3, Parent = sg
+        })
+        task.wait(0.8)
+        Shell.shutdown()
+    end)
 end
 
 function Shell._buildStartMenu()
@@ -4531,12 +4729,32 @@ function Shell._buildStartMenu()
     search.Parent = sm
 
     local list = createInstance("ScrollingFrame", {
-        Name = "List", Size = UDim2.new(1, -24, 1, -86), Position = UDim2.new(0, 12, 0, 78),
+        Name = "List", Size = UDim2.new(1, -24, 1, -126), Position = UDim2.new(0, 12, 0, 78),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
         ScrollBarImageColor3 = tokens.accent, ZIndex = 201
     })
     createInstance("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
     list.Parent = sm
+
+    -- Footer with a power / shutdown button (Windows-XP style turn off).
+    local footer = createInstance("Frame", {
+        Name = "Footer", Size = UDim2.new(1, -24, 0, 38), Position = UDim2.new(0, 12, 1, -46),
+        BackgroundTransparency = 1, ZIndex = 201, Parent = sm
+    })
+    createInstance("Frame", {
+        Name = "FooterLine", Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = tokens.border, BorderSizePixel = 0, ZIndex = 201, Parent = footer
+    })
+    local powerBtn = createInstance("ImageButton", {
+        Name = "PowerButton", Size = UDim2.new(0, 32, 0, 32),
+        Position = UDim2.new(1, 0, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1, Image = "rbxassetid://97248123880891",
+        ImageColor3 = tokens.textPrimary, AutoButtonColor = true, ZIndex = 202
+    })
+    roundCorners(powerBtn, 8)
+    powerBtn.MouseButton1Click:Connect(function() Shell.showShutdownScreen() end)
+    powerBtn.Parent = footer
+    Shell._powerBtn = powerBtn
 
     search:GetPropertyChangedSignal("Text"):Connect(function()
         Shell._populateStartMenu(search.Text)
@@ -4941,7 +5159,92 @@ function Shell.openThemePicker()
 end
 
 function Shell.openAIThemes()
-    -- TODO: Open AI themes panel
+    if Shell._aiStudioWin and Shell.windows[Shell._aiStudioWin.id] then
+        Shell.focusWindow(Shell._aiStudioWin.id)
+        return
+    end
+    local ok, TempleApi = pcall(function() return TempleExRequire("api") end)
+    if not ok or not TempleApi then return end
+    local AI = TempleExRequire("ai")
+
+    local win = TempleApi.Window({ title = "AI Theme Studio", size = { 400, 480 } })
+    Shell._aiStudioWin = win
+    local prevTheme = ThemeEngine.currentTheme
+    local pendingSlug = nil
+
+    win:OnClosed(function()
+        -- Leaving without keeping discards the preview.
+        if pendingSlug then
+            AI.deleteTheme(pendingSlug)
+            if prevTheme then pcall(function() ThemeEngine.setTheme(prevTheme) end) end
+            pendingSlug = nil
+        end
+        Shell._aiStudioWin = nil
+    end)
+
+    local tab = win:Tab("Studio")
+    local sec = tab:Section("Provider & Key")
+
+    local providerNames = {}
+    for k in pairs(AI.providers) do providerNames[#providerNames + 1] = k end
+    table.sort(providerNames)
+
+    sec:Dropdown({
+        title = "Provider", values = providerNames,
+        default = Config.get("ai.provider") or "openai",
+        callback = function(v) pcall(Config.set, "ai.provider", v) end
+    })
+    sec:Input({
+        title = "API Key", placeholder = "sk-...", default = Config.get("ai.api_key") or "",
+        callback = function(t) pcall(Config.set, "ai.api_key", t) end
+    })
+    local modelInput = sec:Input({
+        title = "Model", placeholder = "empty = provider default", default = Config.get("ai.model") or "",
+        callback = function(t) pcall(Config.set, "ai.model", t) end
+    })
+
+    local genSec = tab:Section("Generate")
+    local promptInput = genSec:Input({ title = "Prompt", placeholder = "e.g. cyberpunk neon dark", default = "" })
+    local status = genSec:Label({ text = "Enter a prompt, then Generate. The result previews live." })
+
+    genSec:Button({ title = "Generate Theme", callback = function()
+        local prompt = promptInput and promptInput:Get() or ""
+        if prompt == "" then status:Set("Prompt is empty.") return end
+        status:Set("Generating... (a few seconds)")
+        task.spawn(function()
+            local model = modelInput and modelInput:Get()
+            local theme, yaml, err = AI.buildTheme(prompt, { model = (model and model ~= "") and model or nil })
+            if not theme then
+                status:Set("Failed: " .. tostring(err))
+                return
+            end
+            pendingSlug = theme.slug
+            AI.saveTheme(theme.slug, yaml)
+            pcall(function() ThemeEngine.setTheme(theme.slug) end)
+            status:Set("Previewing '" .. tostring(theme.name) .. "'. Keep or Delete.")
+        end)
+    end })
+
+    genSec:Button({ title = "Keep Theme", callback = function()
+        if pendingSlug then
+            pcall(Config.set, "theme.active", pendingSlug)
+            status:Set("Saved and set as active theme.")
+            pendingSlug = nil
+        else
+            status:Set("Nothing to keep yet.")
+        end
+    end })
+
+    genSec:Button({ title = "Delete Preview", danger = true, callback = function()
+        if pendingSlug then
+            AI.deleteTheme(pendingSlug)
+            if prevTheme then pcall(function() ThemeEngine.setTheme(prevTheme) end) end
+            status:Set("Preview deleted.")
+            pendingSlug = nil
+        else
+            status:Set("Nothing to delete.")
+        end
+    end })
 end
 
 function Shell.openScriptHub()
@@ -5398,7 +5701,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.2.1"
+Git.currentVersion = "1.3.0"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -5783,47 +6086,93 @@ AI.prompts = {
 }
 
 -- ============================================================
+-- PROVIDER PRESETS
+-- ============================================================
+AI.providers = {
+    anthropic  = { baseUrl = "https://api.anthropic.com/v1", style = "anthropic", model = "claude-3-5-sonnet-latest" },
+    claude     = { baseUrl = "https://api.anthropic.com/v1", style = "anthropic", model = "claude-3-5-sonnet-latest" },
+    openai     = { baseUrl = "https://api.openai.com/v1", style = "openai", model = "gpt-4o-mini" },
+    chatgpt    = { baseUrl = "https://api.openai.com/v1", style = "openai", model = "gpt-4o-mini" },
+    deepseek   = { baseUrl = "https://api.deepseek.com/v1", style = "openai", model = "deepseek-chat" },
+    qwen       = { baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", style = "openai", model = "qwen-plus" },
+    nvidia     = { baseUrl = "https://integrate.api.nvidia.com/v1", style = "openai", model = "meta/llama-3.1-70b-instruct" },
+    openrouter = { baseUrl = "https://openrouter.ai/api/v1", style = "openai", model = "openai/gpt-4o-mini" },
+    custom     = { baseUrl = nil, style = "openai", model = nil },
+}
+
+local function extractContent(style, data)
+    if style == "anthropic" then
+        local c = data.content
+        if type(c) == "table" then
+            for _, part in ipairs(c) do
+                if part.type == "text" then return part.text end
+            end
+        end
+        return nil
+    end
+    local ok, txt = pcall(function() return data.choices[1].message.content end)
+    return ok and txt or nil
+end
+
+-- ============================================================
 -- HTTP REQUEST TO LLM
 -- ============================================================
 local function llmRequest(messages, options)
     options = options or {}
     local aiConfig = Config.get("ai") or {}
-    local provider = aiConfig.provider or "openai-compatible"
-    local baseUrl = aiConfig.base_url or "https://api.openai.com/v1"
-    local model = options.model or aiConfig.model or "gpt-4o-mini"
+    local provider = string.lower(aiConfig.provider or "openai")
+    local preset = AI.providers[provider] or AI.providers.openai
+    local style = preset.style
+    local baseUrl = aiConfig.base_url or preset.baseUrl
+    local model = options.model or aiConfig.model or preset.model or "gpt-4o-mini"
+    local apiKey = aiConfig.api_key
     local temperature = options.temperature or 0.7
     local maxTokens = options.max_tokens or 4000
 
-    local apiKey = nil
-    if aiConfig.api_key_env then
-        -- Try to get from executor env (not directly accessible, but some executors expose)
-        -- For now, user must set in temple.yaml or we skip
+    if not apiKey or apiKey == "" then
+        return { Success = false, Error = "No API key set. Open AI Themes and enter a key." }
+    end
+    if not baseUrl then
+        return { Success = false, Error = "No base URL for provider '" .. provider .. "'. Set one (custom)." }
     end
 
-    local headers = {
-        ["Content-Type"] = "application/json"
-    }
+    local headers = { ["Content-Type"] = "application/json" }
+    local url, body
 
-    if apiKey then
+    if style == "anthropic" then
+        headers["x-api-key"] = apiKey
+        headers["anthropic-version"] = "2023-06-01"
+        local system, msgs = "", {}
+        for _, m in ipairs(messages) do
+            if m.role == "system" then system = m.content
+            else table.insert(msgs, { role = m.role, content = m.content }) end
+        end
+        url = baseUrl .. "/messages"
+        body = { model = model, max_tokens = maxTokens, temperature = temperature, system = system, messages = msgs }
+    else
         headers["Authorization"] = "Bearer " .. apiKey
+        url = baseUrl .. "/chat/completions"
+        body = { model = model, messages = messages, temperature = temperature, max_tokens = maxTokens, stream = false }
     end
 
-    local body = {
-        model = model,
-        messages = messages,
-        temperature = temperature,
-        max_tokens = maxTokens,
-        stream = false
-    }
-
-    local url = baseUrl .. "/chat/completions"
     local res = Executor.http(url, {
         Method = "POST",
         Headers = headers,
         Body = HttpService:JSONEncode(body)
     })
 
-    return res
+    if res and res.Success and res.Body and res.Body ~= "" then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok and data then
+            local content = extractContent(style, data)
+            if content then
+                return { Success = true, Content = content }
+            end
+            return { Success = false, Error = "Unexpected response shape" }
+        end
+        return { Success = false, Error = "Bad JSON response" }
+    end
+    return { Success = false, Error = (res and (res.Error or ("HTTP " .. tostring(res.StatusCode)))) or "no response" }
 end
 
 -- ============================================================
@@ -5842,33 +6191,22 @@ end
 -- ============================================================
 -- THEME GENERATOR
 -- ============================================================
-function AI.generateTheme(prompt, options)
+function AI.buildTheme(prompt, options)
     options = options or {}
-    local model = options.model or Config.get("ai.agents.theme-gen.model") or "inherit"
-    local temperature = options.temperature or Config.get("ai.agents.theme-gen.temperature") or 0.9
+    local model = options.model or Config.get("ai.model") or "gpt-4o-mini"
+    local temperature = options.temperature or 0.9
 
-    if model == "inherit" then
-        model = Config.get("ai.model") or "gpt-4o-mini"
-    end
-
-    local key = cacheKey(prompt, model, "theme-gen")
-    if AI.cache[key] then
-        Log.info("Theme gen cache hit")
-        return AI.cache[key]
-    end
-
-    -- Get theme namer first
     local nameResult = AI.nameTheme(prompt)
     local slug = nameResult.slug
     local name = nameResult.name
     local tags = nameResult.tags
 
-    -- Build system prompt with schema
     local schemaPrompt = [[
 You are a TempleEx theme generator. Output ONLY valid YAML for a TempleEx theme v1.
-Required sections: temple_theme: 1, name, author, palette (10 colors), tokens (all 57 required roles), typography, geometry, effects, icons, layout.
-All token values MUST be palette references (e.g., "palette.accent"), never raw hex.
-WCAG AA contrast: text.primary vs window.bg >= 4.5:1, accent vs window.bg >= 3:1.
+Top-level keys: temple_theme: 1, name, author, palette (map of named colors as #RRGGBB), tokens (map of UI roles to a hex color or a "palette.<name>" reference).
+Define at least palette entries: bg, surface, text, muted, accent, border.
+Define at least tokens: window.bg, window.border, text.primary, text.muted, element.bg, toggle.track.on, dock.bg, dock.icon.
+Output ONLY the YAML. No markdown fences, no explanation.
 ]]
 
     local userPrompt = string.format([[
@@ -5876,10 +6214,7 @@ Create a theme: %s
 Name: %s
 Slug: %s
 Tags: %s
-Style: %s
-
-Output ONLY the YAML. No markdown, no explanation.
-]], prompt, name, slug, table.concat(tags, ", "), prompt)
+]], prompt, name, slug, table.concat(tags, ", "))
 
     local messages = {
         {role = "system", content = schemaPrompt},
@@ -5891,46 +6226,51 @@ Output ONLY the YAML. No markdown, no explanation.
     AI.activeRequest = nil
 
     if not res.Success then
-        return nil, "LLM request failed: " .. (res.Error or res.Body)
+        return nil, nil, "LLM request failed: " .. (res.Error or "unknown")
     end
 
-    local data = HttpService:JSONDecode(res.Body)
-    local content = data.choices[1].message.content
+    local content = res.Content
+    local yamlContent = content:match("```yaml%s*(.-)```") or content:match("```%s*(.-)```") or content
+    yamlContent = (yamlContent:gsub("^\n+", ""))
 
-    -- Extract YAML from potential markdown fence
-    local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
-
-    -- Validate via ThemeEngine
     local YAML = TempleExRequire("yaml")
     local theme, errors = YAML.parse(yamlContent)
     if errors and #errors > 0 then
-        return nil, "YAML parse errors: " .. table.concat(errors, "; ")
+        return nil, nil, "YAML parse errors: " .. table.concat(errors, "; ")
+    end
+    if not theme then
+        return nil, nil, "Could not parse theme"
     end
 
-    if not theme or theme.temple_theme ~= 1 then
-        return nil, "Invalid theme format"
-    end
-
-    -- Contrast check (simplified)
-    local contrastOk, contrastErr = AI.validateContrast(theme)
-    if not contrastOk then
-        return nil, "Contrast validation failed: " .. contrastErr
-    end
-
-    -- Cache and save
     theme.name = name
     theme.slug = slug
-    AI.cache[key] = theme
 
-    -- Save to themes folder
+    -- Contrast is advisory only; the user previews and decides.
+    local contrastOk, contrastErr = AI.validateContrast(theme)
+    if not contrastOk then
+        Log.warn("Theme contrast:", contrastErr)
+    end
+
+    return theme, yamlContent, nil
+end
+
+function AI.saveTheme(slug, yamlContent)
     local themesPath = Config.get("paths.themes") or "themes"
-    local fileName = slug .. ".yaml"
-    pcall(Executor.fs_write, themesPath .. "/" .. fileName, yamlContent)
-
-    -- Reload themes
+    pcall(Executor.fs_write, themesPath .. "/" .. slug .. ".yaml", yamlContent)
     ThemeEngine.loadAllThemes(themesPath)
+end
 
-    Log.info("Generated theme:", name, "(", slug .. ")")
+function AI.deleteTheme(slug)
+    local themesPath = Config.get("paths.themes") or "themes"
+    pcall(Executor.fs_delete, themesPath .. "/" .. slug .. ".yaml")
+    ThemeEngine.loadAllThemes(themesPath)
+end
+
+function AI.generateTheme(prompt, options)
+    local theme, yamlContent, err = AI.buildTheme(prompt, options)
+    if not theme then return nil, err end
+    AI.saveTheme(theme.slug, yamlContent)
+    Log.info("Generated theme:", theme.name, "(", theme.slug .. ")")
     return theme, yamlContent
 end
 
@@ -5974,12 +6314,12 @@ Return the complete modified theme YAML only.
     AI.activeRequest = nil
 
     if not res.Success then
-        return nil, "LLM request failed: " .. (res.Error or res.Body)
+        return nil, "LLM request failed: " .. (res.Error or "unknown")
     end
 
-    local data = HttpService:JSONDecode(res.Body)
-    local content = data.choices[1].message.content
-    local yamlContent = content:match("```yaml\n(.-)\n```") or content:match("```\n(.-)\n```") or content
+    local content = res.Content
+    local yamlContent = content:match("```yaml%s*(.-)```") or content:match("```%s*(.-)```") or content
+    yamlContent = (yamlContent:gsub("^\n+", ""))
 
     local YAML = TempleExRequire("yaml")
     local theme, errors = YAML.parse(yamlContent)
@@ -6216,7 +6556,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 2, patch = 1}
+TempleApi.version = {major = 1, minor = 3, patch = 0}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -6225,6 +6565,65 @@ TempleApi._keybinds = {}
 TempleApi._commands = {}
 TempleApi._initialized = false
 TempleApi._scriptContext = nil
+
+-- ============================================================
+-- Button keybind registry: any Button widget can be assigned a keyboard
+-- shortcut that fires its callback. Bindings persist to config under
+-- keybinds.<id>. Right-click the bind chip to clear a bind.
+-- ============================================================
+TempleApi._buttonBinds = {}
+TempleApi._activeBindCapture = nil
+
+local function sanitizeBindId(raw)
+    return tostring(raw):gsub("[^%w_%-]", "_")
+end
+
+local function fireButtonBinds(keyCode)
+    for _, b in pairs(TempleApi._buttonBinds) do
+        if b.keyCode == keyCode then pcall(b.callback) end
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if TempleApi._activeBindCapture then
+            local cap = TempleApi._activeBindCapture
+            TempleApi._activeBindCapture = nil
+            cap(input.KeyCode)
+            return
+        end
+        if not processed then fireButtonBinds(input.KeyCode) end
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 and TempleApi._activeBindCapture then
+        local cap = TempleApi._activeBindCapture
+        TempleApi._activeBindCapture = nil
+        cap(nil)
+    end
+end)
+
+function TempleApi.bindButton(id, keyCode, callback)
+    if not id then return end
+    id = sanitizeBindId(id)
+    TempleApi._buttonBinds[id] = { keyCode = keyCode, callback = callback }
+    pcall(Config.set, "keybinds." .. id, keyCode and keyCode.Name or "None")
+end
+
+function TempleApi.unbindButton(id)
+    if not id then return end
+    id = sanitizeBindId(id)
+    TempleApi._buttonBinds[id] = nil
+    pcall(Config.set, "keybinds." .. id, "None")
+end
+
+function TempleApi.getButtonBind(id)
+    if not id then return nil end
+    id = sanitizeBindId(id)
+    local name = Config.get("keybinds." .. id)
+    if name and name ~= "None" then
+        local ok, kc = pcall(function() return Enum.KeyCode[name] end)
+        if ok and kc then return kc end
+    end
+    return nil
+end
 
 -- ============================================================
 -- INITIALIZATION
@@ -7137,6 +7536,50 @@ createSection = function(self, title)
             if options.callback then pcall(options.callback) end
         end)
 
+        -- Optional keybind chip: assign a key to fire this button (persisted to
+        -- config). Click the chip then press a key; right-click the chip to clear.
+        local bindId = options.flag or options.keybindId or options.title
+        if bindId then
+            bindId = tostring(bindId):gsub("[^%w_%-]", "_")
+            local function runCb() if options.callback then pcall(options.callback) end end
+
+            local chip = Instance.new("TextButton")
+            chip.Name = "BindChip"
+            chip.Size = UDim2.new(0, 44, 0, 22)
+            chip.Position = UDim2.new(1, -6, 0.5, -11)
+            chip.AnchorPoint = Vector2.new(1, 0)
+            chip.BackgroundColor3 = ThemeEngine.getToken("keybind.bg")
+            chip.BorderSizePixel = 0
+            chip.TextColor3 = ThemeEngine.getToken("text.primary")
+            chip.TextSize = 11
+            chip.Font = Enum.Font.GothamMedium
+            chip.AutoButtonColor = true
+            chip.ZIndex = 53
+            chip.Parent = btn
+            local chipCorner = Instance.new("UICorner")
+            chipCorner.CornerRadius = UDim.new(0, 5)
+            chipCorner.Parent = chip
+
+            local function refresh()
+                local kc = TempleApi.getButtonBind(bindId)
+                chip.Text = kc and kc.Name or "bind"
+            end
+            local initKc = TempleApi.getButtonBind(bindId)
+            if initKc then
+                TempleApi._buttonBinds[bindId] = { keyCode = initKc, callback = runCb }
+            end
+            refresh()
+
+            chip.MouseButton1Click:Connect(function()
+                chip.Text = "..."
+                TempleApi._activeBindCapture = function(kc)
+                    if kc then TempleApi.bindButton(bindId, kc, runCb)
+                    else TempleApi.unbindButton(bindId) end
+                    refresh()
+                end
+            end)
+        end
+
         return btn
     end
 
@@ -7730,7 +8173,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 2, patch = 1}
+TempleEx.version = {major = 1, minor = 3, patch = 0}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)

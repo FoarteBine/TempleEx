@@ -314,7 +314,7 @@ Core.register({
     category = "Movement",
     keybind = "Q",
     params = {
-        multiplier = { type = "number", default = 2, min = 0.1, max = 10, suffix = "x" },
+        speed = { type = "number", default = 50, min = 0, max = 10000, suffix = " studs/s" },
         mode = { type = "string", default = "WalkSpeed", options = {"WalkSpeed", "Humanoid", "Velocity"} }
     },
     onEnable = function(params)
@@ -322,23 +322,27 @@ Core.register({
         if not humanoid then return false, "No humanoid" end
 
         originalWalkSpeed = humanoid.WalkSpeed
+        if speedConnection then speedConnection:Disconnect() speedConnection = nil end
 
         local mode = params.mode or "WalkSpeed"
-        local mult = params.multiplier or 2
 
-        if mode == "WalkSpeed" then
-            speedConnection = RunService.RenderStepped:Connect(function()
-                local hum = getHumanoid()
-                if hum then
-                    hum.WalkSpeed = originalWalkSpeed * mult
-                end
-            end)
-        elseif mode == "Velocity" then
+        if mode == "Velocity" then
             speedConnection = RunService.Heartbeat:Connect(function()
+                local p = Core.getParams("speed") or params
+                local spd = p.speed or 50
                 local root = getRootPart()
                 local hum = getHumanoid()
                 if root and hum and hum.MoveDirection.Magnitude > 0 then
-                    root.Velocity = hum.MoveDirection * (originalWalkSpeed * mult)
+                    root.Velocity = hum.MoveDirection * spd
+                end
+            end)
+        else
+            speedConnection = RunService.RenderStepped:Connect(function()
+                local p = Core.getParams("speed") or params
+                local spd = p.speed or 50
+                local hum = getHumanoid()
+                if hum then
+                    hum.WalkSpeed = spd
                 end
             end)
         end
@@ -352,6 +356,56 @@ Core.register({
     end,
     onParamChange = function(param, value)
         -- Applied in loop
+    end
+})
+
+-- ============================================================
+-- JUMP (JumpPower / JumpHeight)
+-- ============================================================
+local jumpPowerValue = 50
+local jumpHeightValue = 7
+local jumpCharConn = nil
+
+local function applyJump()
+    local hum = getHumanoid()
+    if hum then
+        hum.JumpPower = jumpPowerValue
+        hum.JumpHeight = jumpHeightValue
+    end
+end
+
+Core.register({
+    id = "jump",
+    title = "Jump",
+    icon = "🦘",
+    category = "Movement",
+    params = {
+        jumpPower = { type = "number", default = 50, min = 0, max = 1000 },
+        jumpHeight = { type = "number", default = 7, min = 0, max = 1000, suffix = " studs" },
+    },
+    onEnable = function(params)
+        jumpPowerValue = Core.getParam("jump", "jumpPower") or params.jumpPower or 50
+        jumpHeightValue = Core.getParam("jump", "jumpHeight") or params.jumpHeight or 7
+        applyJump()
+        jumpCharConn = LocalPlayer.CharacterAdded:Connect(function()
+            task.wait(0.3)
+            if Core.active.jump then applyJump() end
+        end)
+        return true
+    end,
+    onDisable = function()
+        if jumpCharConn then jumpCharConn:Disconnect(); jumpCharConn = nil end
+        local hum = getHumanoid()
+        if hum then hum.JumpPower = 50; hum.JumpHeight = 7.2 end
+    end,
+    onParamChange = function(param, value)
+        if param == "jumpPower" then jumpPowerValue = value
+        elseif param == "jumpHeight" then jumpHeightValue = value end
+        local hum = getHumanoid()
+        if hum and Core.active.jump then
+            if param == "jumpPower" then hum.JumpPower = value
+            elseif param == "jumpHeight" then hum.JumpHeight = value end
+        end
     end
 })
 
@@ -740,6 +794,7 @@ local freecamEnabled = false
 local freecamConnection = nil
 local freecamCFrame = CFrame.new()
 local freecamSpeed = 50
+local freecamLooking = false
 local originalCameraSubject = nil
 local originalCameraType = nil
 
@@ -783,22 +838,32 @@ Core.register({
             Camera.CFrame = freecamCFrame
         end)
 
-        -- Mouse look
+        -- Mouse look: only while the right mouse button is held, so the cursor
+        -- stays free (not locked) and can click the UI.
+        freecamLooking = false
         Core.connections.freecamMouse = UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement and freecamEnabled then
+            if input.UserInputType == Enum.UserInputType.MouseMovement and freecamEnabled and freecamLooking then
                 local delta = input.Delta
                 freecamCFrame = freecamCFrame * CFrame.Angles(0, -delta.X * 0.002, 0) * CFrame.Angles(-delta.Y * 0.002, 0, 0)
             end
         end)
-
-        -- Lock mouse
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        Core.connections.freecamLookBtn = UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then freecamLooking = true end
+        end)
+        Core.connections.freecamLookBtnEnd = UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then freecamLooking = false end
+        end)
     end,
     onDisable = function()
         freecamEnabled = false
+        freecamLooking = false
         if freecamConnection then freecamConnection:Disconnect() freecamConnection = nil end
         local conn = Core.connections.freecamMouse
         if conn then conn:Disconnect() Core.connections.freecamMouse = nil end
+        local lb = Core.connections.freecamLookBtn
+        if lb then lb:Disconnect() Core.connections.freecamLookBtn = nil end
+        local lbe = Core.connections.freecamLookBtnEnd
+        if lbe then lbe:Disconnect() Core.connections.freecamLookBtnEnd = nil end
 
         Camera.CameraType = originalCameraType or Enum.CameraType.Custom
         Camera.CameraSubject = originalCameraSubject or LocalPlayer.Character
