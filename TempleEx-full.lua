@@ -2483,211 +2483,256 @@ Core.register({
 })
 
 -- ============================================================
--- ESP (Basic - Boxes, Names, Tracers)
+-- VISUALS ESP (box / healthbar / name / distance / tracer /
+--              state icons / part ESP / hitbox / nofog / fullbright)
 -- ============================================================
-local espObjects = {}
-local espConnection = nil
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
 
-local function createESPForPlayer(player)
-    if player == LocalPlayer then return end
-    local function onCharacterAdded(char)
-        task.wait(0.5)
-        if not Core.active.esp then return end
-        createESPForPlayer(player) -- recreate
+local V = {
+    Enabled = false, MaxDist = 2000,
+    NoFog = false, FullBright = false,
+    Box = true, HealthBar = true, Name = true, Distance = false, Tracer = false, StateIcons = false,
+    PartESP = false, PartList = {},
+    Hitbox = false, HitboxSize = 2, HitboxShow = false,
+    Color = Color3.fromRGB(255, 255, 255),
+}
+local VCache = {}
+local VPartCache = {}
+local VConn = nil
+local VOrigLight = {
+    FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
+    Brightness = Lighting.Brightness, Ambient = Lighting.Ambient, GlobalShadows = Lighting.GlobalShadows,
+}
+local VIcons = {
+    Walking = "rbxassetid://117030571122427",
+    Idle    = "rbxassetid://114666164258248",
+    Jump    = "rbxassetid://132943442694668",
+    Swim    = "rbxassetid://123260751807425",
+    Dead    = "rbxassetid://104191266659021",
+}
+
+local function vDraw(t, props)
+    if not Executor.has_drawing() then return nil end
+    local ok, obj = pcall(Drawing.new, t)
+    if not ok or not obj then return nil end
+    for k, v in pairs(props) do obj[k] = v end
+    return obj
+end
+
+local function vStateIcon(hum)
+    if not hum or hum.Health <= 0 then return VIcons.Dead end
+    local s = hum:GetState()
+    if s == Enum.HumanoidStateType.Jumping or s == Enum.HumanoidStateType.Freefall then return VIcons.Jump end
+    if s == Enum.HumanoidStateType.Swimming then return VIcons.Swim end
+    if hum.MoveDirection.Magnitude > 0.1 then return VIcons.Walking end
+    return VIcons.Idle
+end
+
+local function vCreate(plr)
+    if plr == LocalPlayer or VCache[plr] then return end
+    local esp = {
+        Box    = vDraw("Square", { Thickness = 1, Filled = false, Transparency = 0, Color = V.Color, Visible = false }),
+        HPOut  = vDraw("Square", { Thickness = 1, Filled = true, Color = Color3.new(0, 0, 0), Transparency = 0, Visible = false }),
+        HPBar  = vDraw("Square", { Thickness = 1, Filled = true, Transparency = 0, Visible = false }),
+        Name   = vDraw("Text", { Size = 13, Center = true, Outline = true, Color = V.Color, Visible = false }),
+        Dist   = vDraw("Text", { Size = 11, Center = true, Outline = true, Color = V.Color, Visible = false }),
+        Tracer = vDraw("Line", { Thickness = 1, Color = V.Color, Transparency = 0, Visible = false }),
+    }
+    local gui = Instance.new("BillboardGui")
+    gui.Name = "VState_" .. plr.Name
+    gui.Size = UDim2.new(0, 35, 0, 35)
+    gui.AlwaysOnTop = true
+    gui.ExtentsOffset = Vector3.new(0, 3, 0)
+    gui.Enabled = false
+    gui.Parent = CoreGui
+    local img = Instance.new("ImageLabel")
+    img.BackgroundTransparency = 1
+    img.Size = UDim2.new(1, 0, 1, 0)
+    img.Image = VIcons.Idle
+    img.Parent = gui
+    esp.IconGui = gui
+    esp.IconImg = img
+    VCache[plr] = esp
+end
+
+local function vHide(esp)
+    if esp.Box then esp.Box.Visible = false end
+    if esp.HPOut then esp.HPOut.Visible = false end
+    if esp.HPBar then esp.HPBar.Visible = false end
+    if esp.Name then esp.Name.Visible = false end
+    if esp.Dist then esp.Dist.Visible = false end
+    if esp.Tracer then esp.Tracer.Visible = false end
+    if esp.IconGui then esp.IconGui.Enabled = false end
+end
+
+local function vRemove(plr)
+    local esp = VCache[plr]
+    if not esp then return end
+    for _, v in pairs(esp) do
+        if typeof(v) == "userdata" then pcall(function() v:Remove() end)
+        elseif typeof(v) == "Instance" then pcall(function() v:Destroy() end) end
     end
-    player.CharacterAdded:Connect(onCharacterAdded)
+    VCache[plr] = nil
+end
 
-    local char = player.Character
-    if not char then return end
+local function vResetHitboxes()
+    for _, p in ipairs(Players:GetPlayers()) do
+        local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+        if r then r.Size = Vector3.new(2, 2, 1); r.Transparency = 1; r.CanCollide = true end
+    end
+end
 
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local head = char:FindFirstChild("Head")
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not root or not head or not humanoid then return end
+local function vApplyFog()
+    Lighting.FogEnd = V.NoFog and 100000 or VOrigLight.FogEnd
+    Lighting.FogStart = V.NoFog and 0 or VOrigLight.FogStart
+end
 
-    local params = Core.getParams("esp") or {}
-    local showBoxes = params.boxes ~= false
-    local showNames = params.names ~= false
-    local showTracers = params.tracers == true
-    local teamColor = params.teamColor == true
+local function vApplyBright()
+    if V.FullBright then
+        Lighting.Brightness = 2
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.GlobalShadows = false
+    else
+        Lighting.Brightness = VOrigLight.Brightness
+        Lighting.Ambient = VOrigLight.Ambient
+        Lighting.GlobalShadows = VOrigLight.GlobalShadows
+    end
+end
 
-    local function getColor()
-        if teamColor and player.Team then
-            return player.Team.TeamColor.Color
+local function vUpdate()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    for plr, esp in pairs(VCache) do
+        local char = plr.Character
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local head = char and char:FindFirstChild("Head")
+        local show = V.Enabled and char and root and hum and hum.Health > 0 and plr ~= LocalPlayer
+        if show then
+            local pos, vis = Camera:WorldToViewportPoint(root.Position)
+            local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+            if vis and dist <= V.MaxDist then
+                local size = Vector2.new(2000 / pos.Z, 2500 / pos.Z)
+                local top = Vector2.new(pos.X - size.X / 2, pos.Y - size.Y / 2)
+                if esp.Box then esp.Box.Visible = V.Box; if V.Box then esp.Box.Size = size; esp.Box.Position = top; esp.Box.Color = V.Color end end
+                if V.HealthBar and esp.HPOut and esp.HPBar then
+                    local hp = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                    esp.HPOut.Visible = true; esp.HPOut.Size = Vector2.new(4, size.Y); esp.HPOut.Position = Vector2.new(top.X - 6, top.Y)
+                    esp.HPBar.Visible = true; esp.HPBar.Size = Vector2.new(2, size.Y * hp); esp.HPBar.Position = Vector2.new(top.X - 5, top.Y + size.Y * (1 - hp)); esp.HPBar.Color = Color3.fromHSV(hp * 0.3, 1, 1)
+                else
+                    if esp.HPOut then esp.HPOut.Visible = false end
+                    if esp.HPBar then esp.HPBar.Visible = false end
+                end
+                if esp.Name then esp.Name.Visible = V.Name; if V.Name then esp.Name.Text = plr.Name; esp.Name.Position = Vector2.new(pos.X, top.Y - 15); esp.Name.Color = V.Color end end
+                if esp.Dist then esp.Dist.Visible = V.Distance; if V.Distance then esp.Dist.Text = math.floor(dist) .. "m"; esp.Dist.Position = Vector2.new(pos.X, top.Y + size.Y + 2); esp.Dist.Color = V.Color end end
+                if esp.Tracer then esp.Tracer.Visible = V.Tracer; if V.Tracer then esp.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y); esp.Tracer.To = Vector2.new(pos.X, pos.Y + size.Y / 2); esp.Tracer.Color = V.Color end end
+                if esp.IconGui then
+                    if V.StateIcons and head then esp.IconGui.Enabled = true; esp.IconGui.Adornee = head; esp.IconImg.Image = vStateIcon(hum)
+                    else esp.IconGui.Enabled = false end
+                end
+            else
+                vHide(esp)
+            end
+        else
+            vHide(esp)
         end
-        return ThemeEngine.getToken("esp.box") or Color3.new(1, 0, 0)
     end
 
-    -- Box (using Drawing API if available, else Highlight)
-    local box, nameLabel, tracer
-
-    if Executor.has_drawing() then
-        -- Drawing API
-        if showBoxes then
-            box = Drawing.new("Square")
-            box.Thickness = 2
-            box.Filled = false
-            box.Color = getColor()
-        end
-        if showNames then
-            nameLabel = Drawing.new("Text")
-            nameLabel.Size = 14
-            nameLabel.Center = true
-            nameLabel.Outline = true
-            nameLabel.Color = Color3.new(1, 1, 1)
-        end
-        if showTracers then
-            tracer = Drawing.new("Line")
-            tracer.Thickness = 1
-            tracer.Color = getColor()
+    if V.PartESP and #V.PartList > 0 then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and table.find(V.PartList, obj.Name) then
+                if not VPartCache[obj] then
+                    VPartCache[obj] = {
+                        Box = vDraw("Square", { Thickness = 1, Color = Color3.fromRGB(255, 255, 0), Visible = false }),
+                        Text = vDraw("Text", { Size = 12, Center = true, Outline = true, Color = V.Color, Visible = false }),
+                    }
+                end
+                local d = VPartCache[obj]
+                if d.Box and d.Text then
+                    local pp, pv = Camera:WorldToViewportPoint(obj.Position)
+                    if pv then
+                        d.Box.Visible = true; d.Box.Size = Vector2.new(1000 / pp.Z, 1000 / pp.Z); d.Box.Position = Vector2.new(pp.X - d.Box.Size.X / 2, pp.Y - d.Box.Size.Y / 2)
+                        d.Text.Visible = true; d.Text.Text = obj.Name; d.Text.Position = Vector2.new(pp.X, pp.Y + d.Box.Size.Y / 2 + 2)
+                    else
+                        d.Box.Visible = false; d.Text.Visible = false
+                    end
+                end
+            end
         end
     else
-        -- Fallback: Highlight + BillboardGui
-        local highlight = Instance.new("Highlight")
-        highlight.FillTransparency = 0.8
-        highlight.OutlineTransparency = 0
-        highlight.OutlineColor = getColor()
-        highlight.Adornee = char
-        highlight.Parent = char
+        for _, d in pairs(VPartCache) do if d.Box then d.Box.Visible = false end; if d.Text then d.Text.Visible = false end end
+    end
 
-        if showNames then
-            local billboard = Instance.new("BillboardGui")
-            billboard.Size = UDim2.new(0, 200, 0, 30)
-            billboard.StudsOffset = Vector3.new(0, 3, 0)
-            billboard.AlwaysOnTop = true
-            billboard.Adornee = head
-            local label = Instance.new("TextLabel")
-            label.Size = UDim2.new(1, 0, 1, 0)
-            label.BackgroundTransparency = 1
-            label.Text = player.Name
-            label.TextColor3 = Color3.new(1, 1, 1)
-            label.TextStrokeTransparency = 0
-            label.Font = Enum.Font.GothamBold
-            label.TextSize = 14
-            label.Parent = billboard
-            billboard.Parent = head
-            nameLabel = billboard
+    if V.Hitbox then
+        for _, p in ipairs(Players:GetPlayers()) do
+            local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            if r then r.Size = Vector3.new(V.HitboxSize, V.HitboxSize, V.HitboxSize); r.Transparency = V.HitboxShow and 0.7 or 1; r.CanCollide = false end
         end
     end
-
-    espObjects[player] = { box = box, name = nameLabel, tracer = tracer, highlight = highlight, char = char }
 end
 
-local function removeESPForPlayer(player)
-    local obj = espObjects[player]
-    if obj then
-        if obj.box then obj.box:Remove() end
-        if obj.name then obj.name:Remove() end
-        if obj.tracer then obj.tracer:Remove() end
-        if obj.highlight then obj.highlight:Destroy() end
-        espObjects[player] = nil
-    end
-end
 
 Core.register({
     id = "esp",
-    title = "ESP",
+    title = "Visuals",
     icon = "👁",
     category = "Visuals",
     keybind = "P",
-    params = {
-        players = { type = "boolean", default = true },
-        boxes = { type = "boolean", default = true },
-        names = { type = "boolean", default = true },
-        tracers = { type = "boolean", default = false },
-        teamColor = { type = "boolean", default = false }
-    },
-    onEnable = function(params)
-        -- Create ESP for existing players
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                createESPForPlayer(player)
-            end
-        end
-
-        -- Listen for new players
-        Core.connections.espPlayers = Players.PlayerAdded:Connect(function(player)
-            if Core.active.esp then
-                createESPForPlayer(player)
-            end
-        end)
-
-        Players.PlayerRemoving:Connect(removeESPForPlayer)
-
-        -- Update loop
-        espConnection = RunService.RenderStepped:Connect(function()
-            if not Core.active.esp then return end
-            local params = Core.getParams("esp") or {}
-            local showBoxes = params.boxes ~= false
-            local showNames = params.names ~= false
-            local showTracers = params.tracers == true
-
-            for player, obj in pairs(espObjects) do
-                if not player.Character or player.Character ~= obj.char then
-                    removeESPForPlayer(player)
-                    createESPForPlayer(player)
-                    continue
-                end
-
-                local char = player.Character
-                local root = char:FindFirstChild("HumanoidRootPart")
-                local head = char:FindFirstChild("Head")
-                if not root or not head then continue end
-
-                local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                local height = math.abs(screenPos.Y - headPos.Y) * 2
-                local width = height / 2
-
-                local color = params.teamColor and player.Team and player.Team.TeamColor.Color or (ThemeEngine.getToken("esp.box") or Color3.new(1, 0, 0))
-
-                if obj.box then
-                    obj.box.Visible = showBoxes and onScreen
-                    if onScreen then
-                        obj.box.Size = Vector2.new(width, height)
-                        obj.box.Position = Vector2.new(screenPos.X - width/2, screenPos.Y - height/2)
-                        obj.box.Color = color
-                    end
-                end
-
-                if obj.name then
-                    obj.name.Visible = showNames and onScreen
-                    if onScreen then
-                        obj.name.Position = Vector2.new(screenPos.X, screenPos.Y - height/2 - 15)
-                        obj.name.Text = player.Name .. (params.distance and " [" .. math.floor((Camera.CFrame.Position - root.Position).Magnitude) .. "m]" or "")
-                    end
-                end
-
-                if obj.tracer then
-                    obj.tracer.Visible = showTracers and onScreen
-                    if onScreen then
-                        obj.tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-                        obj.tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                        obj.tracer.Color = color
-                    end
-                end
-
-                if obj.highlight then
-                    obj.highlight.OutlineColor = color
-                end
-            end
-        end)
+    params = {},
+    onEnable = function()
+        V.Enabled = true
+        for _, p in ipairs(Players:GetPlayers()) do vCreate(p) end
+        Core.connections.espPlayers = Players.PlayerAdded:Connect(vCreate)
+        Core.connections.espRemoving = Players.PlayerRemoving:Connect(vRemove)
+        VConn = RunService.RenderStepped:Connect(vUpdate)
     end,
     onDisable = function()
-        if espConnection then espConnection:Disconnect() espConnection = nil end
-        for player, _ in pairs(espObjects) do
-            removeESPForPlayer(player)
-        end
-        local conn = Core.connections.espPlayers
-        if conn then conn:Disconnect() Core.connections.espPlayers = nil end
+        V.Enabled = false
+        if VConn then VConn:Disconnect(); VConn = nil end
+        if Core.connections.espPlayers then Core.connections.espPlayers:Disconnect(); Core.connections.espPlayers = nil end
+        if Core.connections.espRemoving then Core.connections.espRemoving:Disconnect(); Core.connections.espRemoving = nil end
+        local keys = {}
+        for plr in pairs(VCache) do keys[#keys + 1] = plr end
+        for _, plr in ipairs(keys) do vRemove(plr) end
+        vResetHitboxes()
     end,
-    onParamChange = function(param, value)
-        -- Recreate ESP to apply visual changes
-        if Core.active.esp then
-            Core.disable("esp")
-            task.wait(0.1)
-            Core.enable("esp")
-        end
+    buildWindow = function(win, tab)
+        local s1 = tab:Section("1. Basic Visuals")
+        s1:Toggle({ title = "No Fog", default = V.NoFog, callback = function(v) V.NoFog = v; vApplyFog() end })
+        s1:Toggle({ title = "Fullbright", default = V.FullBright, callback = function(v) V.FullBright = v; vApplyBright() end })
+
+        local s2 = tab:Section("2. Player ESP")
+        s2:Toggle({ title = "Enable ESP", default = Core.isEnabled("esp"), callback = function(v)
+            if v then Core.enable("esp") else Core.disable("esp") end
+        end })
+        s2:Toggle({ title = "Boxes", default = V.Box, callback = function(v) V.Box = v end })
+        s2:Toggle({ title = "Health Bar", default = V.HealthBar, callback = function(v) V.HealthBar = v end })
+        s2:Toggle({ title = "Names", default = V.Name, callback = function(v) V.Name = v end })
+        s2:Toggle({ title = "Distance", default = V.Distance, callback = function(v) V.Distance = v end })
+        s2:Toggle({ title = "Tracers", default = V.Tracer, callback = function(v) V.Tracer = v end })
+        s2:Toggle({ title = "State Icons", default = V.StateIcons, callback = function(v) V.StateIcons = v end })
+        s2:Slider({ title = "Max Distance", min = 100, max = 10000, step = 100, default = V.MaxDist, suffix = " studs", callback = function(v) V.MaxDist = v end })
+
+        local s3 = tab:Section("3. Part ESP")
+        local partInput = s3:Input({ title = "Part Name", placeholder = "Name...", callback = function() end })
+        s3:Button({ title = "Add Part", callback = function()
+            local t = partInput and partInput.Get and partInput:Get()
+            if t and t ~= "" then table.insert(V.PartList, t) end
+        end })
+        s3:Button({ title = "Clear Parts", callback = function()
+            for _, d in pairs(VPartCache) do
+                if d.Box then pcall(function() d.Box:Remove() end) end
+                if d.Text then pcall(function() d.Text:Remove() end) end
+            end
+            VPartCache = {}
+            V.PartList = {}
+        end })
+        s3:Toggle({ title = "Enable Part ESP", default = V.PartESP, callback = function(v) V.PartESP = v end })
+
+        local s4 = tab:Section("4. Hitbox Expander")
+        s4:Toggle({ title = "Enable Hitbox", default = V.Hitbox, callback = function(v) V.Hitbox = v; if not v then vResetHitboxes() end end })
+        s4:Slider({ title = "Size", min = 2, max = 20, step = 1, default = V.HitboxSize, callback = function(v) V.HitboxSize = v end })
+        s4:Toggle({ title = "Visualise", default = V.HitboxShow, callback = function(v) V.HitboxShow = v end })
     end
 })
 
@@ -4324,6 +4369,14 @@ function Shell.openModuleWindow(id)
     Shell._moduleWindows[id] = win
     win:OnClosed(function() Shell._moduleWindows[id] = nil end)
     local tab = win:Tab("Main")
+    local def = Core.getModule(id)
+    -- A module may provide its own rich window builder instead of the
+    -- auto-generated param widgets.
+    if def and def.buildWindow then
+        local okBuild = pcall(function() def.buildWindow(win, tab, id) end)
+        if not okBuild then Log.warn("buildWindow failed for " .. tostring(id)) end
+        return win
+    end
     local sec = tab:Section(mod.title or id)
     if mod.kind == "core" then
         sec:Toggle({
@@ -4334,7 +4387,6 @@ function Shell.openModuleWindow(id)
                 Shell.updateDockIndicators()
             end
         })
-        local def = Core.getModule(id)
         if def and def.params then
             local names = {}
             for pn in pairs(def.params) do table.insert(names, pn) end
@@ -5290,7 +5342,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.1.0"
+Git.currentVersion = "1.2.0"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -6108,7 +6160,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 1, patch = 0}
+TempleApi.version = {major = 1, minor = 2, patch = 0}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -6459,6 +6511,9 @@ function TempleApi.Window(options)
         tab.contentFrame.BorderSizePixel = 0
         tab.contentFrame.ScrollBarThickness = 4
         tab.contentFrame.ScrollBarImageColor3 = ThemeEngine.getToken("tab.active")
+        tab.contentFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+        tab.contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        tab.contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
         tab.contentFrame.Visible = false
         tab.contentFrame.ZIndex = 50
         tab.contentFrame.Parent = self.contentArea
@@ -7619,7 +7674,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 1, patch = 0}
+TempleEx.version = {major = 1, minor = 2, patch = 0}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)

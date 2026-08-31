@@ -1303,6 +1303,14 @@ function Shell.openModuleWindow(id)
     Shell._moduleWindows[id] = win
     win:OnClosed(function() Shell._moduleWindows[id] = nil end)
     local tab = win:Tab("Main")
+    local def = Core.getModule(id)
+    -- A module may provide its own rich window builder instead of the
+    -- auto-generated param widgets.
+    if def and def.buildWindow then
+        local okBuild = pcall(function() def.buildWindow(win, tab, id) end)
+        if not okBuild then Log.warn("buildWindow failed for " .. tostring(id)) end
+        return win
+    end
     local sec = tab:Section(mod.title or id)
     if mod.kind == "core" then
         sec:Toggle({
@@ -1313,7 +1321,6 @@ function Shell.openModuleWindow(id)
                 Shell.updateDockIndicators()
             end
         })
-        local def = Core.getModule(id)
         if def and def.params then
             local names = {}
             for pn in pairs(def.params) do table.insert(names, pn) end

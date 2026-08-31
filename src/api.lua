@@ -399,6 +399,9 @@ function TempleApi.Window(options)
         tab.contentFrame.BorderSizePixel = 0
         tab.contentFrame.ScrollBarThickness = 4
         tab.contentFrame.ScrollBarImageColor3 = ThemeEngine.getToken("tab.active")
+        tab.contentFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+        tab.contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        tab.contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
         tab.contentFrame.Visible = false
         tab.contentFrame.ZIndex = 50
         tab.contentFrame.Parent = self.contentArea
