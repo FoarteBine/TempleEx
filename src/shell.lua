@@ -1369,7 +1369,7 @@ function Shell.openStartMenu()
     local sm = Shell._startMenu
     if not sm then return end
     local dh = (Shell.dock and Shell.dock.Size.Y.Offset) or 56
-    sm.Position = UDim2.new(0, 8, 1, -(dh + 8))
+    sm.Position = UDim2.new(0.5, 0, 1, -(dh + 8))
     sm.Visible = true
     Shell._populateStartMenu(Shell._startSearch and Shell._startSearch.Text or "")
 end
@@ -1382,7 +1382,7 @@ function Shell._buildStartMenu()
     local W, H = 340, 420
     local sm = createInstance("Frame", {
         Name = "StartMenu", Size = UDim2.new(0, W, 0, H),
-        Position = UDim2.new(0, 8, 1, -8), AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.new(0.5, 0, 1, -8), AnchorPoint = Vector2.new(0.5, 1),
         BackgroundColor3 = tokens.bg, BorderSizePixel = 0, ZIndex = 200,
         Visible = false, ClipsDescendants = false
     })

@@ -198,6 +198,110 @@ Core.register({
 })
 
 -- ============================================================
+-- VEHICLE FLY  (fly while seated in a vehicle, WASD + Space/Ctrl)
+-- ============================================================
+local vfBodyVelocity = nil
+local vfBodyGyro = nil
+local vfConnection = nil
+local vfTarget = nil
+local vfKeys = {W=false, A=false, S=false, D=false, Space=false, LeftControl=false}
+
+local function vfDetach()
+    if vfBodyVelocity then vfBodyVelocity:Destroy(); vfBodyVelocity = nil end
+    if vfBodyGyro then vfBodyGyro:Destroy(); vfBodyGyro = nil end
+    vfTarget = nil
+end
+
+Core.register({
+    id = "vehiclefly",
+    title = "Vehicle Fly",
+    icon = "🚗",
+    category = "Movement",
+    keybind = "V",
+    params = {
+        speed = { type = "number", default = 50, min = 1, max = 500, suffix = " studs/s" },
+        verticalSpeed = { type = "number", default = 50, min = 1, max = 500, suffix = " studs/s" },
+    },
+    onEnable = function(params)
+        vfConnection = RunService.RenderStepped:Connect(function()
+            local hum = getHumanoid()
+            local seat = hum and hum.SeatPart
+            if not seat then
+                vfDetach()
+                return
+            end
+            local model = seat:FindFirstAncestorOfClass("Model")
+            local root = (model and model.PrimaryPart) or seat
+            if root ~= vfTarget then
+                vfDetach()
+                vfTarget = root
+                vfBodyVelocity = Instance.new("BodyVelocity")
+                vfBodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                vfBodyVelocity.Velocity = Vector3.zero
+                vfBodyVelocity.Parent = root
+                vfBodyGyro = Instance.new("BodyGyro")
+                vfBodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                vfBodyGyro.CFrame = root.CFrame
+                vfBodyGyro.Parent = root
+            end
+
+            local p = Core.getParams("vehiclefly") or params
+            local camCF = Camera.CFrame
+            local moveDir = Vector3.zero
+            if vfKeys.W then moveDir = moveDir + camCF.LookVector end
+            if vfKeys.S then moveDir = moveDir - camCF.LookVector end
+            if vfKeys.A then moveDir = moveDir - camCF.RightVector end
+            if vfKeys.D then moveDir = moveDir + camCF.RightVector end
+            if vfKeys.Space then moveDir = moveDir + Vector3.new(0, 1, 0) end
+            if vfKeys.LeftControl then moveDir = moveDir - Vector3.new(0, 1, 0) end
+            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
+
+            local hs = p.speed or 50
+            local vs = p.verticalSpeed or 50
+            if vfBodyVelocity then vfBodyVelocity.Velocity = Vector3.new(moveDir.X * hs, moveDir.Y * vs, moveDir.Z * hs) end
+            if vfBodyGyro then vfBodyGyro.CFrame = CFrame.new(root.Position, root.Position + camCF.LookVector) end
+        end)
+
+        local function onBegan(input, processed)
+            if processed then return end
+            local k = input.KeyCode
+            if k == Enum.KeyCode.W then vfKeys.W = true
+            elseif k == Enum.KeyCode.A then vfKeys.A = true
+            elseif k == Enum.KeyCode.S then vfKeys.S = true
+            elseif k == Enum.KeyCode.D then vfKeys.D = true
+            elseif k == Enum.KeyCode.Space then vfKeys.Space = true
+            elseif k == Enum.KeyCode.LeftControl then vfKeys.LeftControl = true end
+        end
+        local function onEnded(input)
+            local k = input.KeyCode
+            if k == Enum.KeyCode.W then vfKeys.W = false
+            elseif k == Enum.KeyCode.A then vfKeys.A = false
+            elseif k == Enum.KeyCode.S then vfKeys.S = false
+            elseif k == Enum.KeyCode.D then vfKeys.D = false
+            elseif k == Enum.KeyCode.Space then vfKeys.Space = false
+            elseif k == Enum.KeyCode.LeftControl then vfKeys.LeftControl = false end
+        end
+        Core.connections.vehiclefly = {
+            UserInputService.InputBegan:Connect(onBegan),
+            UserInputService.InputEnded:Connect(onEnded),
+        }
+        return true
+    end,
+    onDisable = function()
+        if vfConnection then vfConnection:Disconnect(); vfConnection = nil end
+        vfDetach()
+        local conn = Core.connections.vehiclefly
+        if conn then
+            for _, c in ipairs(conn) do c:Disconnect() end
+            Core.connections.vehiclefly = nil
+        end
+    end,
+    onParamChange = function()
+        -- Params read fresh in the render loop
+    end
+})
+
+-- ============================================================
 -- SPEED
 -- ============================================================
 local speedConnection = nil
@@ -374,26 +478,19 @@ Core.register({
 
 -- ============================================================
 -- VISUALS ESP (box / healthbar / name / distance / tracer /
---              state icons / part ESP / hitbox / nofog / fullbright)
+--              state icons / part ESP)
 -- ============================================================
-local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 
 local V = {
     Enabled = false, MaxDist = 2000,
-    NoFog = false, FullBright = false,
     Box = true, HealthBar = true, Name = true, Distance = false, Tracer = false, StateIcons = false,
     PartESP = false, PartList = {},
-    Hitbox = false, HitboxSize = 2, HitboxShow = false,
     Color = Color3.fromRGB(255, 255, 255),
 }
 local VCache = {}
 local VPartCache = {}
 local VConn = nil
-local VOrigLight = {
-    FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
-    Brightness = Lighting.Brightness, Ambient = Lighting.Ambient, GlobalShadows = Lighting.GlobalShadows,
-}
 local VIcons = {
     Walking = "rbxassetid://117030571122427",
     Idle    = "rbxassetid://114666164258248",
@@ -427,7 +524,7 @@ local function vCreate(plr)
         HPBar  = vDraw("Square", { Thickness = 1, Filled = true, Transparency = 0, Visible = false }),
         Name   = vDraw("Text", { Size = 13, Center = true, Outline = true, Color = V.Color, Visible = false }),
         Dist   = vDraw("Text", { Size = 11, Center = true, Outline = true, Color = V.Color, Visible = false }),
-        Tracer = vDraw("Line", { Thickness = 1, Color = V.Color, Transparency = 0, Visible = false }),
+        Tracer = vDraw("Line", { Thickness = 2, Color = V.Color, Transparency = 0, Visible = false }),
     }
     local gui = Instance.new("BillboardGui")
     gui.Name = "VState_" .. plr.Name
@@ -464,30 +561,6 @@ local function vRemove(plr)
         elseif typeof(v) == "Instance" then pcall(function() v:Destroy() end) end
     end
     VCache[plr] = nil
-end
-
-local function vResetHitboxes()
-    for _, p in ipairs(Players:GetPlayers()) do
-        local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-        if r then r.Size = Vector3.new(2, 2, 1); r.Transparency = 1; r.CanCollide = true end
-    end
-end
-
-local function vApplyFog()
-    Lighting.FogEnd = V.NoFog and 100000 or VOrigLight.FogEnd
-    Lighting.FogStart = V.NoFog and 0 or VOrigLight.FogStart
-end
-
-local function vApplyBright()
-    if V.FullBright then
-        Lighting.Brightness = 2
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.GlobalShadows = false
-    else
-        Lighting.Brightness = VOrigLight.Brightness
-        Lighting.Ambient = VOrigLight.Ambient
-        Lighting.GlobalShadows = VOrigLight.GlobalShadows
-    end
 end
 
 local function vUpdate()
@@ -552,13 +625,6 @@ local function vUpdate()
     else
         for _, d in pairs(VPartCache) do if d.Box then d.Box.Visible = false end; if d.Text then d.Text.Visible = false end end
     end
-
-    if V.Hitbox then
-        for _, p in ipairs(Players:GetPlayers()) do
-            local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-            if r then r.Size = Vector3.new(V.HitboxSize, V.HitboxSize, V.HitboxSize); r.Transparency = V.HitboxShow and 0.7 or 1; r.CanCollide = false end
-        end
-    end
 end
 
 
@@ -584,32 +650,27 @@ Core.register({
         local keys = {}
         for plr in pairs(VCache) do keys[#keys + 1] = plr end
         for _, plr in ipairs(keys) do vRemove(plr) end
-        vResetHitboxes()
     end,
     buildWindow = function(win, tab)
-        local s1 = tab:Section("1. Basic Visuals")
-        s1:Toggle({ title = "No Fog", default = V.NoFog, callback = function(v) V.NoFog = v; vApplyFog() end })
-        s1:Toggle({ title = "Fullbright", default = V.FullBright, callback = function(v) V.FullBright = v; vApplyBright() end })
-
-        local s2 = tab:Section("2. Player ESP")
-        s2:Toggle({ title = "Enable ESP", default = Core.isEnabled("esp"), callback = function(v)
+        local s1 = tab:Section("1. Player ESP")
+        s1:Toggle({ title = "Enable ESP", default = Core.isEnabled("esp"), callback = function(v)
             if v then Core.enable("esp") else Core.disable("esp") end
         end })
-        s2:Toggle({ title = "Boxes", default = V.Box, callback = function(v) V.Box = v end })
-        s2:Toggle({ title = "Health Bar", default = V.HealthBar, callback = function(v) V.HealthBar = v end })
-        s2:Toggle({ title = "Names", default = V.Name, callback = function(v) V.Name = v end })
-        s2:Toggle({ title = "Distance", default = V.Distance, callback = function(v) V.Distance = v end })
-        s2:Toggle({ title = "Tracers", default = V.Tracer, callback = function(v) V.Tracer = v end })
-        s2:Toggle({ title = "State Icons", default = V.StateIcons, callback = function(v) V.StateIcons = v end })
-        s2:Slider({ title = "Max Distance", min = 100, max = 10000, step = 100, default = V.MaxDist, suffix = " studs", callback = function(v) V.MaxDist = v end })
+        s1:Toggle({ title = "Boxes", default = V.Box, callback = function(v) V.Box = v end })
+        s1:Toggle({ title = "Health Bar", default = V.HealthBar, callback = function(v) V.HealthBar = v end })
+        s1:Toggle({ title = "Names", default = V.Name, callback = function(v) V.Name = v end })
+        s1:Toggle({ title = "Distance", default = V.Distance, callback = function(v) V.Distance = v end })
+        s1:Toggle({ title = "Tracers", default = V.Tracer, callback = function(v) V.Tracer = v end })
+        s1:Toggle({ title = "State Icons", default = V.StateIcons, callback = function(v) V.StateIcons = v end })
+        s1:Slider({ title = "Max Distance", min = 100, max = 10000, step = 100, default = V.MaxDist, suffix = " studs", callback = function(v) V.MaxDist = v end })
 
-        local s3 = tab:Section("3. Part ESP")
-        local partInput = s3:Input({ title = "Part Name", placeholder = "Name...", callback = function() end })
-        s3:Button({ title = "Add Part", callback = function()
+        local s2 = tab:Section("2. Part ESP")
+        local partInput = s2:Input({ title = "Part Name", placeholder = "Name...", callback = function() end })
+        s2:Button({ title = "Add Part", callback = function()
             local t = partInput and partInput.Get and partInput:Get()
             if t and t ~= "" then table.insert(V.PartList, t) end
         end })
-        s3:Button({ title = "Clear Parts", callback = function()
+        s2:Button({ title = "Clear Parts", callback = function()
             for _, d in pairs(VPartCache) do
                 if d.Box then pcall(function() d.Box:Remove() end) end
                 if d.Text then pcall(function() d.Text:Remove() end) end
@@ -617,12 +678,7 @@ Core.register({
             VPartCache = {}
             V.PartList = {}
         end })
-        s3:Toggle({ title = "Enable Part ESP", default = V.PartESP, callback = function(v) V.PartESP = v end })
-
-        local s4 = tab:Section("4. Hitbox Expander")
-        s4:Toggle({ title = "Enable Hitbox", default = V.Hitbox, callback = function(v) V.Hitbox = v; if not v then vResetHitboxes() end end })
-        s4:Slider({ title = "Size", min = 2, max = 20, step = 1, default = V.HitboxSize, callback = function(v) V.HitboxSize = v end })
-        s4:Toggle({ title = "Visualise", default = V.HitboxShow, callback = function(v) V.HitboxShow = v end })
+        s2:Toggle({ title = "Enable Part ESP", default = V.PartESP, callback = function(v) V.PartESP = v end })
     end
 })
 
