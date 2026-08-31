@@ -8,7 +8,7 @@
 -- BOOTLOADER SECTION (runs first, downloads full build if needed)
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
-local BOOTLOADER_VERSION = "1.0.9"
+local BOOTLOADER_VERSION = "1.1.0"
 local REPO = "FoarteBine/TempleEx"
 local BRANCH = "main"
 local MIRRORS = {

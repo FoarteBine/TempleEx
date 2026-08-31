@@ -1257,6 +1257,7 @@ shell:
     hide_delay: 0.4
     icon_size: 40
     magnify: true
+    start_position: "left"
     pins: ["start"]
 
 scripts:
@@ -3395,10 +3396,16 @@ end
 
 function Shell.closeWindow(id)
     local window = Shell.windows[id]
-    if window and window.onClose then
+    if not window then return end
+    if window.onClose then
         window.onClose()
     end
     Shell.unregisterWindow(id)
+    -- unregisterWindow only untracks; destroy the actual GUI so the window
+    -- disappears (previously the frame stayed on screen after Close).
+    if window.gui then
+        pcall(function() window.gui:Destroy() end)
+    end
 end
 
 function Shell.snapWindow(id, direction)
@@ -3503,6 +3510,36 @@ function Shell.getDockHeight()
         return (config.shell.dock.icon_size or 40) + 10
     end
     return 0
+end
+
+-- Magnetic snap for window dragging: align to screen edges and to other
+-- windows' edges/centers within a threshold. Returns adjusted (x, y) in
+-- absolute screen pixels. `excludeId` is the window being dragged.
+function Shell.snapPosition(excludeId, x, y, w, h)
+    local vw, vh = Camera.ViewportSize.X, Camera.ViewportSize.Y
+    local top = Shell.getMenuBarHeight()
+    local bottom = vh - Shell.getDockHeight()
+    local TH = 8
+    local xs = { 0, vw - w, (vw - w) / 2 }
+    local ys = { top, bottom - h, (top + bottom - h) / 2 }
+    for id, win in pairs(Shell.windows) do
+        if id ~= excludeId and win.gui and win.gui.Visible then
+            local ox, oy = win.gui.AbsolutePosition.X, win.gui.AbsolutePosition.Y
+            local ow, oh = win.gui.AbsoluteSize.X, win.gui.AbsoluteSize.Y
+            table.insert(xs, ox); table.insert(xs, ox + ow - w); table.insert(xs, ox + ow / 2 - w / 2)
+            table.insert(ys, oy); table.insert(ys, oy + oh - h); table.insert(ys, oy + oh / 2 - h / 2)
+        end
+    end
+    local function snapTo(val, cands)
+        local best, bd = val, TH + 1
+        for _, c in ipairs(cands) do
+            local d = math.abs(c - val)
+            if d < bd then bd = d; best = c end
+        end
+        if bd > TH then return val end
+        return best
+    end
+    return snapTo(x, xs), snapTo(y, ys)
 end
 
 -- Save window positions to cache
@@ -3799,10 +3836,15 @@ function Shell.initDock(config)
         return true
     end
     if sameList(pins, LEGACY_DEFAULT) then pins = { "start" } end
-    -- The Start Menu button is always present and first.
-    local hasStart = false
-    for _, p in ipairs(pins) do if p == "start" then hasStart = true end end
-    if not hasStart then table.insert(pins, 1, "start") end
+    -- The Start button is always present; its side (leftmost/rightmost in the
+    -- dock) is configurable via shell.dock.start_position.
+    local startPos = Config.get("shell.dock.start_position") or "left"
+    for i = #pins, 1, -1 do if pins[i] == "start" then table.remove(pins, i) end end
+    if startPos == "right" then
+        table.insert(pins, "start")
+    else
+        table.insert(pins, 1, "start")
+    end
 
     Shell.dockConfig = {
         position = config.position or "bottom",
@@ -5248,7 +5290,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.9"
+Git.currentVersion = "1.1.0"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -6066,7 +6108,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 9}
+TempleApi.version = {major = 1, minor = 1, patch = 0}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -6183,7 +6225,7 @@ function TempleApi.Window(options)
 
     local titleText = Instance.new("TextLabel")
     titleText.Name = "Title"
-    titleText.Size = UDim2.new(1, -80, 1, 0)
+    titleText.Size = UDim2.new(1, -96, 1, 0)
     titleText.Position = UDim2.new(0, padding, 0, 0)
     titleText.BackgroundTransparency = 1
     titleText.Text = window.title
@@ -6194,16 +6236,16 @@ function TempleApi.Window(options)
     titleText.ZIndex = 52
     titleText.Parent = titleBar
 
-    -- Window controls
+    -- Window controls (3 x 28px buttons with spacing, inset from the right edge)
     local controls = Instance.new("Frame")
     controls.Name = "Controls"
-    controls.Size = UDim2.new(0, 70, 1, 0)
-    controls.Position = UDim2.new(1, -70, 0, 0)
+    controls.Size = UDim2.new(0, 92, 1, 0)
+    controls.Position = UDim2.new(1, -92, 0, 0)
     controls.BackgroundTransparency = 1
     controls.ZIndex = 51
     controls.Parent = titleBar
 
-    local function makeControlBtn(name, iconName, fallbackText, pos, callback)
+    local function makeControlBtn(name, iconName, pos, callback)
         local btn = Instance.new("TextButton")
         btn.Name = name
         btn.Size = UDim2.new(0, 28, 0, 28)
@@ -6213,7 +6255,7 @@ function TempleApi.Window(options)
         btn.AutoButtonColor = false
         btn.ZIndex = 52
         btn.Parent = controls
-        local _, setIcon = Icons.new(iconName, btn, 16, ThemeEngine.getToken("window.title.fg"))
+        local iconInst, setIcon = Icons.new(iconName, btn, 16, ThemeEngine.getToken("window.title.fg"))
         btn.MouseButton1Click:Connect(callback)
         btn.MouseEnter:Connect(function()
             setIcon(ThemeEngine.getToken("window.close.hover") or ThemeEngine.getToken("text.accent"))
@@ -6221,25 +6263,34 @@ function TempleApi.Window(options)
         btn.MouseLeave:Connect(function()
             setIcon(ThemeEngine.getToken("window.title.fg"))
         end)
-        return btn
+        return btn, iconInst
     end
 
-    makeControlBtn("Minimize", "minimize", "—", UDim2.new(0, 0, 0.5, -14), function() window.minimize() end)
-    makeControlBtn("Maximize", "maximize", "□", UDim2.new(0, 28, 0.5, -14), function()
-        if window.maximized then window.restore() else window.maximize() end
+    makeControlBtn("Minimize", "minimize", UDim2.new(0, 0, 0.5, -14), function() window.minimize() end)
+    local _, maxIcon = makeControlBtn("Maximize", "maximize", UDim2.new(0, 30, 0.5, -14), function()
+        if window.maximized then
+            window.restore()
+            if maxIcon and maxIcon:IsA("ImageLabel") then maxIcon.Image = Icons.overrides.maximize end
+        else
+            window.maximize()
+            if maxIcon and maxIcon:IsA("ImageLabel") then maxIcon.Image = Icons.overrides.restore end
+        end
     end)
-    makeControlBtn("Close", "close", "✕", UDim2.new(0, 56, 0.5, -14), function() window.close() end)
+    makeControlBtn("Close", "close", UDim2.new(0, 60, 0.5, -14), function() window.close() end)
 
-    -- Drag handling
+    -- Drag handling with magnetic snap (screen edges + other windows)
     local dragging = false
-    local dragStart, startPos
+    local dragStart, startAbs
 
     titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = window.gui.Position
-        end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        -- ignore presses that land on the control buttons
+        local cp, cs = controls.AbsolutePosition, controls.AbsoluteSize
+        if input.Position.X >= cp.X and input.Position.X <= cp.X + cs.X
+            and input.Position.Y >= cp.Y and input.Position.Y <= cp.Y + cs.Y then return end
+        dragging = true
+        dragStart = input.Position
+        startAbs = Vector2.new(window.gui.AbsolutePosition.X, window.gui.AbsolutePosition.Y)
     end)
 
     titleBar.InputEnded:Connect(function(input)
@@ -6253,12 +6304,63 @@ function TempleApi.Window(options)
     UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
             local delta = input.Position - dragStart
-            window.gui.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+            local w, h = window.gui.AbsoluteSize.X, window.gui.AbsoluteSize.Y
+            local nx, ny = Shell.snapPosition(window.id, startAbs.X + delta.X, startAbs.Y + delta.Y, w, h)
+            window.gui.Position = UDim2.new(0, nx, 0, ny)
         end
     end)
+
+    -- Resize handles: 4 edges + 4 corners
+    local MIN_W, MIN_H = 220, 140
+    local function addHandle(name, aPos, aSize, anchor, dirs)
+        local hd = Instance.new("Frame")
+        hd.Name = "Resize_" .. name
+        hd.BackgroundTransparency = 1
+        hd.BorderSizePixel = 0
+        hd.Size = aSize
+        hd.Position = aPos
+        hd.AnchorPoint = anchor
+        hd.ZIndex = 55
+        hd.Parent = window.gui
+        local resizing, rStart, rPos, rSize
+        hd.InputBegan:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+            resizing = true
+            rStart = input.Position
+            rPos = Vector2.new(window.gui.AbsolutePosition.X, window.gui.AbsolutePosition.Y)
+            rSize = Vector2.new(window.gui.AbsoluteSize.X, window.gui.AbsoluteSize.Y)
+        end)
+        hd.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                resizing = false
+                window.savedPosition = window.gui.Position
+                window.savedSize = window.gui.Size
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if not (resizing and input.UserInputType == Enum.UserInputType.MouseMovement) then return end
+            local dx, dy = input.Position.X - rStart.X, input.Position.Y - rStart.Y
+            local x, y, w, h = rPos.X, rPos.Y, rSize.X, rSize.Y
+            if dirs.e then w = rSize.X + dx end
+            if dirs.s then h = rSize.Y + dy end
+            if dirs.w then w = rSize.X - dx; x = rPos.X + dx end
+            if dirs.n then h = rSize.Y - dy; y = rPos.Y + dy end
+            if w < MIN_W then if dirs.w then x = rPos.X + (rSize.X - MIN_W) end; w = MIN_W end
+            if h < MIN_H then if dirs.n then y = rPos.Y + (rSize.Y - MIN_H) end; h = MIN_H end
+            window.gui.Position = UDim2.new(0, x, 0, y)
+            window.gui.Size = UDim2.new(0, w, 0, h)
+        end)
+    end
+
+    local T = 6
+    addHandle("n",  UDim2.new(0, T, 0, 0),      UDim2.new(1, -2 * T, 0, T), Vector2.new(0, 0), { n = true })
+    addHandle("s",  UDim2.new(0, T, 1, -T),     UDim2.new(1, -2 * T, 0, T), Vector2.new(0, 0), { s = true })
+    addHandle("w",  UDim2.new(0, 0, 0, T),      UDim2.new(0, T, 1, -2 * T), Vector2.new(0, 0), { w = true })
+    addHandle("e",  UDim2.new(1, -T, 0, T),     UDim2.new(0, T, 1, -2 * T), Vector2.new(0, 0), { e = true })
+    addHandle("nw", UDim2.new(0, 0, 0, 0),      UDim2.new(0, 12, 0, 12),    Vector2.new(0, 0), { n = true, w = true })
+    addHandle("ne", UDim2.new(1, 0, 0, 0),      UDim2.new(0, 12, 0, 12),    Vector2.new(1, 0), { n = true, e = true })
+    addHandle("sw", UDim2.new(0, 0, 1, 0),      UDim2.new(0, 12, 0, 12),    Vector2.new(0, 1), { s = true, w = true })
+    addHandle("se", UDim2.new(1, 0, 1, 0),      UDim2.new(0, 12, 0, 12),    Vector2.new(1, 1), { s = true, e = true })
 
     -- Content area
     window.container = Instance.new("Frame")
@@ -7517,7 +7619,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 9}
+TempleEx.version = {major = 1, minor = 1, patch = 0}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)

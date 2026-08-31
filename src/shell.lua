@@ -375,10 +375,16 @@ end
 
 function Shell.closeWindow(id)
     local window = Shell.windows[id]
-    if window and window.onClose then
+    if not window then return end
+    if window.onClose then
         window.onClose()
     end
     Shell.unregisterWindow(id)
+    -- unregisterWindow only untracks; destroy the actual GUI so the window
+    -- disappears (previously the frame stayed on screen after Close).
+    if window.gui then
+        pcall(function() window.gui:Destroy() end)
+    end
 end
 
 function Shell.snapWindow(id, direction)
@@ -483,6 +489,36 @@ function Shell.getDockHeight()
         return (config.shell.dock.icon_size or 40) + 10
     end
     return 0
+end
+
+-- Magnetic snap for window dragging: align to screen edges and to other
+-- windows' edges/centers within a threshold. Returns adjusted (x, y) in
+-- absolute screen pixels. `excludeId` is the window being dragged.
+function Shell.snapPosition(excludeId, x, y, w, h)
+    local vw, vh = Camera.ViewportSize.X, Camera.ViewportSize.Y
+    local top = Shell.getMenuBarHeight()
+    local bottom = vh - Shell.getDockHeight()
+    local TH = 8
+    local xs = { 0, vw - w, (vw - w) / 2 }
+    local ys = { top, bottom - h, (top + bottom - h) / 2 }
+    for id, win in pairs(Shell.windows) do
+        if id ~= excludeId and win.gui and win.gui.Visible then
+            local ox, oy = win.gui.AbsolutePosition.X, win.gui.AbsolutePosition.Y
+            local ow, oh = win.gui.AbsoluteSize.X, win.gui.AbsoluteSize.Y
+            table.insert(xs, ox); table.insert(xs, ox + ow - w); table.insert(xs, ox + ow / 2 - w / 2)
+            table.insert(ys, oy); table.insert(ys, oy + oh - h); table.insert(ys, oy + oh / 2 - h / 2)
+        end
+    end
+    local function snapTo(val, cands)
+        local best, bd = val, TH + 1
+        for _, c in ipairs(cands) do
+            local d = math.abs(c - val)
+            if d < bd then bd = d; best = c end
+        end
+        if bd > TH then return val end
+        return best
+    end
+    return snapTo(x, xs), snapTo(y, ys)
 end
 
 -- Save window positions to cache
@@ -779,10 +815,15 @@ function Shell.initDock(config)
         return true
     end
     if sameList(pins, LEGACY_DEFAULT) then pins = { "start" } end
-    -- The Start Menu button is always present and first.
-    local hasStart = false
-    for _, p in ipairs(pins) do if p == "start" then hasStart = true end end
-    if not hasStart then table.insert(pins, 1, "start") end
+    -- The Start button is always present; its side (leftmost/rightmost in the
+    -- dock) is configurable via shell.dock.start_position.
+    local startPos = Config.get("shell.dock.start_position") or "left"
+    for i = #pins, 1, -1 do if pins[i] == "start" then table.remove(pins, i) end end
+    if startPos == "right" then
+        table.insert(pins, "start")
+    else
+        table.insert(pins, 1, "start")
+    end
 
     Shell.dockConfig = {
         position = config.position or "bottom",

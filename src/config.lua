@@ -38,6 +38,7 @@ shell:
     hide_delay: 0.4
     icon_size: 40
     magnify: true
+    start_position: "left"
     pins: ["start"]
 
 scripts:
