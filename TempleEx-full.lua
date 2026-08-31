@@ -2934,10 +2934,30 @@ local Icons = {}
 
 -- name -> "rbxassetid://..." (or a getcustomasset URL). Populated by config
 -- `icons.assets` or at runtime via TempleEx.Icons.overrides.
-Icons.overrides = {}
+-- Defaults below are the user-supplied Google Material raster assets.
+Icons.overrides = {
+    start          = "rbxassetid://77014925817328", -- menu_power
+    flight         = "rbxassetid://138022586306102",
+    directions_run = "rbxassetid://70523947915342",
+    visibility     = "rbxassetid://133911389227055",
+    block          = "rbxassetid://13793170713",
+    arrow_upward   = "rbxassetid://153287109",
+    wb_sunny       = "rbxassetid://118024599480966",
+    center_focus   = "rbxassetid://107110237849005",
+    photo_camera   = "rbxassetid://9266631404",
+    palette        = "rbxassetid://14008802626",
+    auto_awesome   = "rbxassetid://92629709486503",
+    code           = "rbxassetid://11348555035",
+    settings       = "rbxassetid://9405931578",
+    search         = "rbxassetid://118685771787843",
+    close          = "rbxassetid://135341415849911",
+    minimize       = "rbxassetid://103624489836882",
+    maximize       = "rbxassetid://87584126977170",
+    restore        = "rbxassetid://83285738642662",
+}
 
--- Built-in default: the Start Menu button uses a user-supplied Material asset.
-Icons.overrides.start = "rbxassetid://77014925817328"
+-- Small badge drawn at the bottom-right of every dock shortcut.
+Icons.shortcutBadge = "rbxassetid://133742372514080"
 
 -- Material-symbol name -> emoji glyph (placeholder for icons with no asset).
 Icons.glyphs = {
@@ -3769,6 +3789,16 @@ function Shell.initDock(config)
     if not config.enabled then return end
 
     local pins = config.pins or Config.get("shell.dock.pins") or { "start" }
+    -- One-time migration: the old default pre-pinned a set of shortcuts. The
+    -- dock now starts with only the Start button; drop that legacy set so the
+    -- user gets a clean dock (their own added shortcuts are preserved).
+    local LEGACY_DEFAULT = { "fly", "esp", "speed", "themes", "ai", "scripts" }
+    local function sameList(a, b)
+        if #a ~= #b then return false end
+        for i = 1, #a do if a[i] ~= b[i] then return false end end
+        return true
+    end
+    if sameList(pins, LEGACY_DEFAULT) then pins = { "start" } end
     -- The Start Menu button is always present and first.
     local hasStart = false
     for _, p in ipairs(pins) do if p == "start" then hasStart = true end end
@@ -3787,11 +3817,14 @@ function Shell.initDock(config)
     local iconSize = Shell.dockConfig.iconSize
     local dockHeight = iconSize + 16
 
+    -- Compact dock: hugs its content (AutomaticSize.X), centered at the bottom,
+    -- NOT full screen width.
     Shell.dock = createInstance("Frame", {
         Name = "Dock",
-        Size = UDim2.new(1, 0, 0, dockHeight),
-        Position = UDim2.new(0, 0, 1, dockHeight + 10), -- start off-screen (slides up on reveal)
-        AnchorPoint = Vector2.new(0, 1),
+        Size = UDim2.new(0, 0, 0, dockHeight),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.new(0.5, 0, 1, dockHeight + 10), -- start off-screen (slides up on reveal)
+        AnchorPoint = Vector2.new(0.5, 1),
         BackgroundColor3 = tokens.dockBg,
         BackgroundTransparency = 0.1,
         BorderSizePixel = 0,
@@ -3807,7 +3840,7 @@ function Shell.initDock(config)
             VerticalAlignment = Enum.VerticalAlignment.Center,
             Padding = UDim.new(0, 8)
         }),
-        createInstance("UIPadding", {PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)})
+        createInstance("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)})
     })
 
     Shell.dock.Parent = Shell.screenGui
@@ -3870,14 +3903,14 @@ function Shell.showDock()
     if not Shell.dock then return end
     Shell.dockVisible = true
     Shell.dock.Visible = true
-    tween(Shell.dock, {Position = UDim2.new(0, 0, 1, 0)}, 0.2)
+    tween(Shell.dock, {Position = UDim2.new(0.5, 0, 1, 0)}, 0.2)
 end
 
 function Shell.hideDock()
     if not Shell.dock then return end
     Shell.dockVisible = false
     local off = Shell.dock.Size.Y.Offset + 10
-    tween(Shell.dock, {Position = UDim2.new(0, 0, 1, off)}, 0.2)
+    tween(Shell.dock, {Position = UDim2.new(0.5, 0, 1, off)}, 0.2)
     task.delay(0.2, function()
         -- Finish hiding only if it is still meant to be hidden (no re-show since).
         if not Shell.dockVisible then
@@ -3930,6 +3963,21 @@ function Shell.addDockPin(pinId)
     if iconName then
         local _, setIcon = Icons.new(iconName, btn, Shell.dockConfig.iconSize * 0.5, tokens.dockIcon)
         table.insert(Shell._dockIconSetters, setIcon)
+    end
+
+    -- Shortcut badge: small marker at the bottom-right of every pinned
+    -- shortcut (not the Start button).
+    if pinId ~= "start" and Icons.shortcutBadge then
+        local badge = Instance.new("ImageLabel")
+        badge.Name = "ShortcutBadge"
+        badge.Image = Icons.shortcutBadge
+        badge.BackgroundTransparency = 1
+        badge.ImageColor3 = tokens.dockIcon
+        badge.Size = UDim2.new(0, 14, 0, 14)
+        badge.Position = UDim2.new(1, -1, 1, -1)
+        badge.AnchorPoint = Vector2.new(1, 1)
+        badge.ZIndex = 143
+        badge.Parent = btn
     end
 
     -- Active indicator
@@ -4770,6 +4818,8 @@ ThemeEngine.subscribe(function()
                 pin.button.BackgroundColor3 = tokens.elementBg
                 pin.button.TextColor3 = tokens.dockIcon
                 if pin.indicator then pin.indicator.BackgroundColor3 = tokens.dockIndicator end
+                local badge = pin.button:FindFirstChild("ShortcutBadge")
+                if badge then badge.ImageColor3 = tokens.dockIcon end
             end
         end
     end
@@ -5198,7 +5248,7 @@ local Autoload = TempleExRequire("autoload")
 
 local HttpService = game:GetService("HttpService")
 
-Git.currentVersion = "1.0.8"
+Git.currentVersion = "1.0.9"
 Git.cachedVersion = nil
 Git.updateAvailable = false
 
@@ -6016,7 +6066,7 @@ local function themeElemPadding(fallback)
     return (t and t.geometry and t.geometry.padding and t.geometry.padding.element) or fallback
 end
 
-TempleApi.version = {major = 1, minor = 0, patch = 8}
+TempleApi.version = {major = 1, minor = 0, patch = 9}
 TempleApi._windows = {}
 TempleApi._windowIdCounter = 0
 TempleApi._flags = {}
@@ -7467,7 +7517,7 @@ end
 -- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
 local TempleEx = {}
-TempleEx.version = {major = 1, minor = 0, patch = 8}
+TempleEx.version = {major = 1, minor = 0, patch = 9}
 
 local function init()
     -- Materialize embedded themes/agents into workspace (offline-ready)

@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 # ── Single source of truth for the version ─────────────────────
-$Version = "1.0.8"
+$Version = "1.0.9"
 $vmaj, $vmin, $vpat = $Version.Split(".")
 
 # Write UTF-8 WITHOUT BOM (PowerShell 5.1's Set-Content -Encoding UTF8 adds a BOM,

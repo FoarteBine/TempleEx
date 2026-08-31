@@ -16,10 +16,30 @@ local Icons = {}
 
 -- name -> "rbxassetid://..." (or a getcustomasset URL). Populated by config
 -- `icons.assets` or at runtime via TempleEx.Icons.overrides.
-Icons.overrides = {}
+-- Defaults below are the user-supplied Google Material raster assets.
+Icons.overrides = {
+    start          = "rbxassetid://77014925817328", -- menu_power
+    flight         = "rbxassetid://138022586306102",
+    directions_run = "rbxassetid://70523947915342",
+    visibility     = "rbxassetid://133911389227055",
+    block          = "rbxassetid://13793170713",
+    arrow_upward   = "rbxassetid://153287109",
+    wb_sunny       = "rbxassetid://118024599480966",
+    center_focus   = "rbxassetid://107110237849005",
+    photo_camera   = "rbxassetid://9266631404",
+    palette        = "rbxassetid://14008802626",
+    auto_awesome   = "rbxassetid://92629709486503",
+    code           = "rbxassetid://11348555035",
+    settings       = "rbxassetid://9405931578",
+    search         = "rbxassetid://118685771787843",
+    close          = "rbxassetid://135341415849911",
+    minimize       = "rbxassetid://103624489836882",
+    maximize       = "rbxassetid://87584126977170",
+    restore        = "rbxassetid://83285738642662",
+}
 
--- Built-in default: the Start Menu button uses a user-supplied Material asset.
-Icons.overrides.start = "rbxassetid://77014925817328"
+-- Small badge drawn at the bottom-right of every dock shortcut.
+Icons.shortcutBadge = "rbxassetid://133742372514080"
 
 -- Material-symbol name -> emoji glyph (placeholder for icons with no asset).
 Icons.glyphs = {
